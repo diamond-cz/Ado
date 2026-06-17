@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Todo</title>
+    <script>
+      (function () {
+        try {
+          function readThemeMode(value) {
+            return value === "light" || value === "dark" || value === "system"
+              ? value
+              : null;
+          }
+          function readJson(key) {
+            var raw = localStorage.getItem(key);
+            if (!raw) return null;
+            try {
+              return JSON.parse(raw);
+            } catch (e) {
+              return null;
+            }
+          }
+          var bootstrap = window.__AEBOX_BOOTSTRAP__;
+          var bootstrapTodo = bootstrap && bootstrap.todoSettings;
+          var saved = readJson("aebox.todoSettings");
+          var mode =
+            readThemeMode(bootstrapTodo && bootstrapTodo.themeMode) ||
+            readThemeMode(saved && saved.themeMode) ||
+            "system";
+          var isDark =
+            mode === "dark" ||
+            (mode === "system" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var bg = isDark ? "#20293a" : "#f8fafc";
+          document.documentElement.setAttribute("data-aebox-prepaint", "1");
+          document.documentElement.style.backgroundColor = bg;
+          document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+          document.documentElement.style.setProperty("--aebox-prepaint-bg", bg);
+        } catch (e) {
+          /* best-effort prepaint */
+        }
+      })();
+    </script>
+    <style>
+      html,
+      body,
+      #root {
+        background-color: var(--aebox-prepaint-bg, transparent);
+      }
+      html[data-aebox-prepaint="1"],
+      html[data-aebox-prepaint="1"] body,
+      html[data-aebox-prepaint="1"] #root {
+        background-color: var(--aebox-prepaint-bg, transparent) !important;
+      }
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
