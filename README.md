@@ -30,7 +30,7 @@ Runtime data is stored under the resolved base directory:
 - `app_cache/todo/backups/`
 - `app_cache/todo/assets/`
 
-Set `AEBOX_TODO_BASE` to override the data root. `AEBOX_BASE` is kept as a compatibility fallback.
+
 
 Custom fonts can be placed in:
 
