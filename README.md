@@ -1,5 +1,6 @@
-# Ado
-tauri v2开发的todo清单
+
+![ado](https://socialify.git.ci/965962591/ado/image?description=1&font=JetBrains+Mono&language=1&name=1&pattern=Plus&stargazers=1&theme=Auto)
+
 
 ![0](assets/image_2026-06-18_14-49-59.jpg) 
 
