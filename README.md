@@ -1,7 +1,11 @@
 # Ado
+tauri v2开发的todo清单
 
-Standalone Tauri + React todo app extracted from `aebox_rust`.
+![0](assets/image_2026-06-18_14-49-59.jpg) 
 
+![1](assets/image_2026-06-18_14-58-59.jpg) 
+
+![2](assets/image_2026-06-18_15-01-17.jpg) 
 ## Development
 
 ```bash
@@ -38,4 +42,3 @@ Custom fonts can be placed in:
 resource/fonts/
 ```
 
-The app creates that directory on demand.
