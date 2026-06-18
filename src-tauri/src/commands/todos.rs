@@ -453,10 +453,16 @@ pub(crate) fn todo_assets_dir() -> PathBuf {
     resolve_base_dir().join(TODO_ASSETS_DIR)
 }
 
+#[cfg(not(mobile))]
 fn apply_todo_window_icon(window: &tauri::WebviewWindow) -> CmdResult<()> {
     let icon = tauri::image::Image::from_bytes(include_bytes!("../../icons/icon.ico"))
         .map_err(|e| e.to_string())?;
     window.set_icon(icon).map_err(|e| e.to_string())
+}
+
+#[cfg(mobile)]
+fn apply_todo_window_icon(_window: &tauri::WebviewWindow) -> CmdResult<()> {
+    Ok(())
 }
 
 pub(crate) fn sanitize_asset_file_name(input: &str) -> Result<String, String> {
@@ -2220,6 +2226,7 @@ pub async fn open_todo_window(app: AppHandle) -> CmdResult<()> {
         let _ = apply_window_app_id(&win, WINDOW_APP_ID);
         let _ = apply_todo_window_icon(&win);
         let _ = win.show();
+        #[cfg(not(mobile))]
         let _ = win.unminimize();
         let _ = win.set_focus();
         return Ok(());
@@ -2244,10 +2251,14 @@ pub async fn open_todo_window(app: AppHandle) -> CmdResult<()> {
             .title(WINDOW_TITLE)
             .inner_size(960.0, 640.0)
             .min_inner_size(720.0, 480.0)
-            .decorations(false)
             .background_color(initial_background)
             .initialization_script(initial_script)
             .visible(true);
+
+    #[cfg(not(mobile))]
+    {
+        builder = builder.decorations(false);
+    }
 
     if let Some((x, y, w, h)) = initial_bounds {
         builder = builder.inner_size(w, h).position(x, y);
