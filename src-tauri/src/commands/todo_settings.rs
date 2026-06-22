@@ -29,6 +29,7 @@ pub struct TodoSettings {
     pub accent_color: String,
     pub accent_color_overridden: bool,
     pub checkbox_shape: String,
+    pub widget_background_opacity: f64,
     pub idle_paper_effect_enabled: bool,
     pub idle_paper_light_effect: String,
     pub web_dav_url: String,
@@ -116,6 +117,7 @@ impl Default for TodoSettings {
             accent_color: "#2563eb".to_string(),
             accent_color_overridden: false,
             checkbox_shape: "square".to_string(),
+            widget_background_opacity: 0.76,
             idle_paper_effect_enabled: true,
             idle_paper_light_effect: "random".to_string(),
             web_dav_url: String::new(),
@@ -202,6 +204,11 @@ pub fn clamp_todo_settings(mut settings: TodoSettings) -> TodoSettings {
     settings.font_family = normalize_todo_font_family(settings.font_family);
     settings.accent_color = normalize_todo_accent_color(settings.accent_color);
     settings.checkbox_shape = normalize_todo_checkbox_shape(settings.checkbox_shape);
+    settings.widget_background_opacity = if settings.widget_background_opacity.is_finite() {
+        settings.widget_background_opacity.clamp(0.01, 1.0)
+    } else {
+        TodoSettings::default().widget_background_opacity
+    };
     settings.idle_paper_light_effect =
         normalize_todo_idle_light_effect(settings.idle_paper_light_effect);
     settings.web_dav_url = settings.web_dav_url.trim().to_string();

@@ -22,7 +22,8 @@ use sqlx::sqlite::{
     SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow, SqliteSynchronous,
 };
 use sqlx::{Row, SqlitePool};
-use tauri::{window::Color, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::window::Color;
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::OnceCell;
 
 use crate::commands::app::resolve_base_dir;
@@ -34,9 +35,13 @@ const TODOS_DB_FILE: &str = "app_cache/todo/todos.sqlite";
 const TODO_BACKUPS_DIR: &str = "app_cache/todo/backups";
 const TOMATO_FILE: &str = "app_cache/todo/Tomato.json";
 const TODO_ASSETS_DIR: &str = "app_cache/todo/assets";
+const TODO_ICON_REL: &str = "icon/todo.ico";
 const WINDOW_LABEL: &str = "todo";
-const WINDOW_TITLE: &str = "Ado";
-const WINDOW_APP_ID: &str = "com.aebox.ado";
+const WINDOW_TITLE: &str = "Todo";
+const WINDOW_APP_ID: &str = "com.barrychen.aebox-lite.todo";
+const WIDGET_WINDOW_LABEL: &str = "todo-widget";
+const WIDGET_WINDOW_TITLE: &str = "Todo Widget";
+const WIDGET_WINDOW_APP_ID: &str = "com.barrychen.aebox-lite.todo.widget";
 const ORDER_STEP: f64 = 1024.0;
 const DEFAULT_LIST_NAME: &str = "默认";
 const DEFAULT_LIST_EMOJI: &str = "📋";
@@ -453,10 +458,69 @@ pub(crate) fn todo_assets_dir() -> PathBuf {
     resolve_base_dir().join(TODO_ASSETS_DIR)
 }
 
-fn apply_todo_window_icon(window: &tauri::WebviewWindow) -> CmdResult<()> {
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../../icons/icon.ico"))
-        .map_err(|e| e.to_string())?;
-    window.set_icon(icon).map_err(|e| e.to_string())
+pub(crate) fn todo_icon_path(app: &AppHandle) -> Option<PathBuf> {
+    let mut candidates = vec![resolve_base_dir().join(TODO_ICON_REL)];
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join(TODO_ICON_REL));
+    }
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+#[cfg(windows)]
+fn apply_todo_taskbar_icon(window: &tauri::WebviewWindow, icon_path: &Path) -> CmdResult<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL, ICON_SMALL2, IMAGE_ICON,
+        LR_DEFAULTSIZE, LR_LOADFROMFILE, SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON,
+        WM_SETICON,
+    };
+
+    let hwnd = {
+        let raw = window.hwnd().map_err(|e| e.to_string())?.0;
+        windows::Win32::Foundation::HWND(raw)
+    };
+    let wide_path: Vec<u16> = icon_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let name = PCWSTR::from_raw(wide_path.as_ptr());
+
+    unsafe {
+        let big_icon = LoadImageW(
+            None,
+            name,
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXICON),
+            GetSystemMetrics(SM_CYICON),
+            LR_DEFAULTSIZE | LR_LOADFROMFILE,
+        )
+        .map_err(|e| format!("load todo taskbar icon: {}", e))?;
+        let small_icon = LoadImageW(
+            None,
+            name,
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON),
+            GetSystemMetrics(SM_CYSMICON),
+            LR_DEFAULTSIZE | LR_LOADFROMFILE,
+        )
+        .map_err(|e| format!("load todo small icon: {}", e))?;
+
+        let big_lparam = LPARAM(big_icon.0 as isize);
+        let small_lparam = LPARAM(small_icon.0 as isize);
+        SendMessageW(hwnd, WM_SETICON, WPARAM(ICON_BIG as usize), big_lparam);
+        SendMessageW(hwnd, WM_SETICON, WPARAM(ICON_SMALL as usize), small_lparam);
+        SendMessageW(hwnd, WM_SETICON, WPARAM(ICON_SMALL2 as usize), small_lparam);
+    }
+
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn apply_todo_taskbar_icon(_window: &tauri::WebviewWindow, _icon_path: &Path) -> CmdResult<()> {
+    Ok(())
 }
 
 pub(crate) fn sanitize_asset_file_name(input: &str) -> Result<String, String> {
@@ -2218,7 +2282,6 @@ pub fn parse_todo_time_text(text: String, now_ms: Option<i64>) -> CmdResult<Todo
 pub async fn open_todo_window(app: AppHandle) -> CmdResult<()> {
     if let Some(win) = app.get_webview_window(WINDOW_LABEL) {
         let _ = apply_window_app_id(&win, WINDOW_APP_ID);
-        let _ = apply_todo_window_icon(&win);
         let _ = win.show();
         let _ = win.unminimize();
         let _ = win.set_focus();
@@ -2228,10 +2291,7 @@ pub async fn open_todo_window(app: AppHandle) -> CmdResult<()> {
     let initial_settings = crate::commands::todo_settings::load_todo_settings();
     let initial_settings_json =
         serde_json::to_string(&initial_settings).unwrap_or_else(|_| "{}".into());
-    let initial_script = format!(
-        "try{{var s={};window.__AEBOX_BOOTSTRAP__=Object.assign({{}},window.__AEBOX_BOOTSTRAP__,{{view:'todo',todoSettings:s}});localStorage.setItem('aebox.todoSettings',JSON.stringify(s));}}catch(e){{}}",
-        initial_settings_json
-    );
+    let initial_script = todo_initialization_script("todo", &initial_settings_json);
     let initial_background = if initial_settings.theme_mode == "dark" {
         Color(32, 41, 58, 255)
     } else {
@@ -2255,9 +2315,84 @@ pub async fn open_todo_window(app: AppHandle) -> CmdResult<()> {
 
     let window = builder.build().map_err(|e| e.to_string())?;
     let _ = apply_window_app_id(&window, WINDOW_APP_ID);
-    let _ = apply_todo_window_icon(&window);
+    if let Some(icon_path) = todo_icon_path(&app) {
+        let _ = apply_todo_taskbar_icon(&window, &icon_path);
+    }
+    crate::commands::window::attach_todo_close_handler(&window);
     let _ = window.set_focus();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn open_todo_widget_window(app: AppHandle) -> CmdResult<()> {
+    if let Some(win) = app.get_webview_window(WIDGET_WINDOW_LABEL) {
+        let _ = apply_window_app_id(&win, WIDGET_WINDOW_APP_ID);
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let initial_settings = crate::commands::todo_settings::load_todo_settings();
+    let initial_settings_json =
+        serde_json::to_string(&initial_settings).unwrap_or_else(|_| "{}".into());
+    let initial_script = todo_initialization_script("todo-widget", &initial_settings_json);
+    let initial_bounds = initial_todo_widget_window_bounds(&app);
+
+    let mut builder = WebviewWindowBuilder::new(
+        &app,
+        WIDGET_WINDOW_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title(WIDGET_WINDOW_TITLE)
+    .inner_size(420.0, 660.0)
+    .min_inner_size(320.0, 420.0)
+    .decorations(false)
+    .transparent(true)
+    .background_color(Color(0, 0, 0, 0))
+    .resizable(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .initialization_script(initial_script)
+    .visible(false);
+
+    if let Some((x, y, w, h)) = initial_bounds {
+        builder = builder.inner_size(w, h).position(x, y);
+    }
+
+    let window = builder.build().map_err(|e| e.to_string())?;
+    let _ = apply_window_app_id(&window, WIDGET_WINDOW_APP_ID);
+    if let Some(icon_path) = todo_icon_path(&app) {
+        let _ = apply_todo_taskbar_icon(&window, &icon_path);
+    }
+    crate::commands::window::attach_hide_on_close_handler(&window);
+    let _ = window.show();
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn toggle_todo_widget_window(app: AppHandle) -> CmdResult<()> {
+    if let Some(win) = app.get_webview_window(WIDGET_WINDOW_LABEL) {
+        if win.is_visible().unwrap_or(false) {
+            let _ = win.hide();
+            return Ok(());
+        }
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    open_todo_widget_window(app).await
+}
+
+fn todo_initialization_script(view: &str, initial_settings_json: &str) -> String {
+    let view_json = serde_json::to_string(view).unwrap_or_else(|_| "\"todo\"".into());
+    format!(
+        "try{{var s={};window.__AEBOX_BOOTSTRAP__=Object.assign({{}},window.__AEBOX_BOOTSTRAP__,{{view:{},todoSettings:s}});localStorage.setItem('aebox.todoSettings',JSON.stringify(s));}}catch(e){{}}",
+        initial_settings_json, view_json
+    )
 }
 
 fn initial_todo_window_bounds(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
@@ -2275,6 +2410,34 @@ fn initial_todo_window_bounds(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
         let x = mp.x + ((mw as i32 - w as i32) / 2);
         let y = mp.y + ((mh as i32 - h as i32) / 2);
         let scale = m.scale_factor().max(1.0);
+
+        (
+            x as f64 / scale,
+            y as f64 / scale,
+            w as f64 / scale,
+            h as f64 / scale,
+        )
+    })
+}
+
+fn initial_todo_widget_window_bounds(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
+    let cursor = app.cursor_position().ok();
+    let target = cursor
+        .and_then(|c| app.monitor_from_point(c.x, c.y).ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+
+    target.map(|m| {
+        let mw = m.size().width as i32;
+        let mh = m.size().height as i32;
+        let mp = m.position();
+        let scale = m.scale_factor().max(1.0);
+        let margin = (32.0 * scale).round() as i32;
+        let preferred_w = (420.0 * scale).round() as i32;
+        let preferred_h = (660.0 * scale).round() as i32;
+        let w = preferred_w.min((mw as f64 * 0.9).round() as i32).max(320);
+        let h = preferred_h.min((mh as f64 * 0.86).round() as i32).max(420);
+        let x = mp.x + mw - w - margin;
+        let y = mp.y + ((mh - h) / 2).max(margin);
 
         (
             x as f64 / scale,

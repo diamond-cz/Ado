@@ -76,6 +76,7 @@ import { useTodoReminders } from "./todoReminders";
 import { listenTodoPomodoroStart } from "./todoPomodoroEvents";
 import {
   DEFAULT_TODO_COLOR_THEME_ID,
+  resolveTodoAccentColor,
   resolveTodoColorTheme,
 } from "../../lib/todoColorThemes";
 import { acceleratorsMatch, eventToAccelerator } from "../../lib/accelerator";
@@ -307,6 +308,8 @@ export default function TodoPanel() {
   usePomodoroCompletionNotification();
   const todoColorThemeId = useStore((s) => s.appSettings.todoColorTheme);
   const todoColorThemes = useStore((s) => s.appSettings.todoColorThemes);
+  const todoAccentColor = useStore((s) => s.appSettings.todoAccentColor);
+  const todoAccentColorOverridden = useStore((s) => s.appSettings.todoAccentColorOverridden);
   const todoFontFamily = useStore((s) => s.appSettings.todoFontFamily);
   const todoIdlePaperEffectEnabled = useStore((s) => s.appSettings.todoIdlePaperEffectEnabled);
   const todoIdlePaperLightEffect = useStore((s) => s.appSettings.todoIdlePaperLightEffect);
@@ -679,6 +682,10 @@ export default function TodoPanel() {
     () => resolveTodoColorTheme(todoColorThemeId, todoColorThemes),
     [todoColorThemeId, todoColorThemes],
   );
+  const resolvedTodoAccentColor = useMemo(
+    () => resolveTodoAccentColor(colorTheme, todoAccentColor, todoAccentColorOverridden),
+    [colorTheme, todoAccentColor, todoAccentColorOverridden],
+  );
   const todoFontCss = useMemo(
     () => todoFontCssFamily(todoFontFamily, todoFonts),
     [todoFontFamily, todoFonts],
@@ -805,7 +812,7 @@ export default function TodoPanel() {
             <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", background: secondaryColumnBg }}>
               <TitleDragStrip background={secondaryColumnBg} />
               <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                <TodoCalendar isDark={isDark} />
+                <TodoCalendar isDark={isDark} accentColor={resolvedTodoAccentColor} />
               </Box>
             </Box>
           ) : (

@@ -77,6 +77,14 @@ export function listTodoFonts(): Promise<TodoFontEntry[]> {
   return ipc.listTodoFonts();
 }
 
+export function openTodoWidgetWindow(): Promise<void> {
+  return ipc.openTodoWidgetWindow();
+}
+
+export function toggleTodoWidgetWindow(): Promise<void> {
+  return ipc.toggleTodoWidgetWindow();
+}
+
 export function getTomatoData<T = unknown>(): Promise<T> {
   return ipc.getTomatoData<T>();
 }

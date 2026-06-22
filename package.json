@@ -16,13 +16,10 @@
     "@emotion/cache": "^11.14.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
-    "@fullcalendar/core": "7.0.0-rc.0",
-    "@fullcalendar/daygrid": "7.0.0-rc.0",
-    "@fullcalendar/icalendar": "7.0.0-rc.0",
-    "@fullcalendar/interaction": "7.0.0-rc.0",
-    "@fullcalendar/list": "7.0.0-rc.0",
-    "@fullcalendar/react": "7.0.0-rc.0",
-    "@fullcalendar/timegrid": "7.0.0-rc.0",
+    "@fullcalendar/core": "7.0.0-rc.3",
+    "@fullcalendar/icalendar": "7.0.0-rc.3",
+    "@fullcalendar/react": "7.0.0-rc.3",
+    "@fullcalendar/react-scheduler": "7.0.0-rc.3",
     "@mui/icons-material": "^9.0.1",
     "@mui/material": "^9.0.1",
     "@mui/x-date-pickers": "^9.3.0",
@@ -57,15 +54,17 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-rotary-knob": "^3.0.3",
+    "rolldown-vite": "^7.3.1",
+    "streamdown": "^2.5.0",
+    "temporal-polyfill": "^0.3.2",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "@types/node": "^22.10.10",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "@vitejs/plugin-react-oxc": "^0.4.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
   }
 }

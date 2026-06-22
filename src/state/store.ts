@@ -38,6 +38,11 @@ export const DEFAULT_TODO_SHORTCUTS: TodoShortcuts = {
   complete: "Control+M",
   search: "Control+F",
 };
+export type HotkeyId = "todoWidget";
+export type Hotkeys = Record<HotkeyId, string>;
+const DEFAULT_HOTKEYS: Hotkeys = {
+  todoWidget: "Alt+Shift+W",
+};
 
 interface Snack {
   id: number;
@@ -53,6 +58,7 @@ export interface AppSettingsState {
   todoAccentColor: string;
   todoAccentColorOverridden: boolean;
   todoCheckboxShape: "square" | "circle";
+  todoWidgetBackgroundOpacity: number;
   todoIdlePaperEffectEnabled: boolean;
   todoIdlePaperLightEffect: TodoIdleLightEffectMode;
   todoWebDavUrl: string;
@@ -73,12 +79,17 @@ export type TodoSettingsState = AppSettingsState;
 
 interface State {
   appSettings: AppSettingsState;
+  autostart: boolean;
+  closeToTray: boolean;
   hotkeyRecording: boolean;
-  hotkeys: Record<string, string>;
+  hotkeys: Hotkeys;
   snacks: Snack[];
 }
 
 interface Actions {
+  setAutostart(enabled: boolean): void;
+  setCloseToTray(enabled: boolean): void;
+  setHotkey(id: HotkeyId, value: string): void;
   setHotkeyRecording(recording: boolean): void;
   setTodoSettings(next: Partial<TodoSettingsState>): void;
   pushSnack(message: string, severity?: Snack["severity"]): void;
@@ -86,6 +97,7 @@ interface Actions {
 }
 
 export const TODO_SETTINGS_STORAGE_KEY = "aebox.todoSettings";
+const WINDOW_UI_SETTINGS_STORAGE_KEY = "aebox.windowSettings";
 
 export const DEFAULT_APP_SETTINGS: AppSettingsState = {
   todoThemeMode: "system",
@@ -95,6 +107,7 @@ export const DEFAULT_APP_SETTINGS: AppSettingsState = {
   todoAccentColor: "#2563eb",
   todoAccentColorOverridden: false,
   todoCheckboxShape: "square",
+  todoWidgetBackgroundOpacity: 0.76,
   todoIdlePaperEffectEnabled: true,
   todoIdlePaperLightEffect: "random",
   todoWebDavUrl: "",
@@ -112,6 +125,12 @@ export const DEFAULT_APP_SETTINGS: AppSettingsState = {
 };
 
 let snackId = 0;
+
+interface WindowUiSettings {
+  autostart: boolean;
+  closeToTray: boolean;
+  hotkeys: Hotkeys;
+}
 
 function readInitialTodoSettings(): TodoSettingsState {
   try {
@@ -136,13 +155,35 @@ function readInitialTodoSettings(): TodoSettingsState {
 }
 
 const initialAppSettings = mergeTodoSettings(DEFAULT_APP_SETTINGS, readInitialTodoSettings());
+const initialWindowUiSettings = readInitialWindowUiSettings();
 
 export const useStore = create<State & Actions>((set, get) => ({
   appSettings: initialAppSettings,
+  autostart: initialWindowUiSettings.autostart,
+  closeToTray: initialWindowUiSettings.closeToTray,
   hotkeyRecording: false,
-  hotkeys: {},
+  hotkeys: initialWindowUiSettings.hotkeys,
   snacks: [],
 
+  setAutostart: (enabled) => {
+    set({ autostart: enabled });
+    persistWindowUiSettings({ ...readWindowUiState(get()), autostart: enabled });
+    import("../lib/ipc")
+      .then(({ ipc }) => ipc.setAutostart(enabled))
+      .catch(() => {});
+  },
+  setCloseToTray: (enabled) => {
+    set({ closeToTray: enabled });
+    persistWindowUiSettings({ ...readWindowUiState(get()), closeToTray: enabled });
+    import("../lib/ipc")
+      .then(({ ipc }) => ipc.setCloseToTray(enabled))
+      .catch(() => {});
+  },
+  setHotkey: (id, value) => {
+    const hotkeys = { ...get().hotkeys, [id]: value.trim() };
+    set({ hotkeys });
+    persistWindowUiSettings({ ...readWindowUiState(get()), hotkeys });
+  },
   setHotkeyRecording: (recording) => set({ hotkeyRecording: recording }),
   setTodoSettings: (next) => {
     const merged = mergeTodoSettings(get().appSettings, next);
@@ -156,6 +197,48 @@ export const useStore = create<State & Actions>((set, get) => ({
   dismissSnack: (id) =>
     set((state) => ({ snacks: state.snacks.filter((snack) => snack.id !== id) })),
 }));
+
+function readInitialWindowUiSettings(): WindowUiSettings {
+  try {
+    const raw = localStorage.getItem(WINDOW_UI_SETTINGS_STORAGE_KEY);
+    if (raw) return normalizeWindowUiSettings(JSON.parse(raw));
+  } catch {
+    /* localStorage may be stale or unavailable */
+  }
+  return normalizeWindowUiSettings({});
+}
+
+function readWindowUiState(state: State): WindowUiSettings {
+  return {
+    autostart: state.autostart,
+    closeToTray: state.closeToTray,
+    hotkeys: state.hotkeys,
+  };
+}
+
+function persistWindowUiSettings(settings: WindowUiSettings) {
+  try {
+    localStorage.setItem(WINDOW_UI_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    /* localStorage sync is best-effort */
+  }
+}
+
+function normalizeWindowUiSettings(value: unknown): WindowUiSettings {
+  const raw = asRecord(value);
+  return {
+    autostart: readBoolean(raw.autostart, false),
+    closeToTray: readBoolean(raw.closeToTray, false),
+    hotkeys: normalizeHotkeys(raw.hotkeys),
+  };
+}
+
+function normalizeHotkeys(value: unknown): Hotkeys {
+  const raw = asRecord(value);
+  return {
+    todoWidget: readString(raw.todoWidget, DEFAULT_HOTKEYS.todoWidget).trim(),
+  };
+}
 
 function persistTodoSettings(state: AppSettingsState) {
   const payload = todoSettingsStateToPayload(state);
@@ -180,6 +263,7 @@ export function todoSettingsStateToPayload(state: AppSettingsState | TodoSetting
     accentColor: state.todoAccentColor,
     accentColorOverridden: state.todoAccentColorOverridden,
     checkboxShape: state.todoCheckboxShape,
+    widgetBackgroundOpacity: state.todoWidgetBackgroundOpacity,
     idlePaperEffectEnabled: state.todoIdlePaperEffectEnabled,
     idlePaperLightEffect: state.todoIdlePaperLightEffect,
     webDavUrl: state.todoWebDavUrl.trim(),
@@ -217,6 +301,10 @@ export function todoSettingsPayloadToState(payload: unknown): TodoSettingsState 
       d.todoAccentColorOverridden,
     ),
     todoCheckboxShape: readTodoCheckboxShape(todo.checkboxShape, d.todoCheckboxShape),
+    todoWidgetBackgroundOpacity: readOpacity(
+      todo.widgetBackgroundOpacity,
+      d.todoWidgetBackgroundOpacity,
+    ),
     todoIdlePaperEffectEnabled: readBoolean(
       todo.idlePaperEffectEnabled,
       d.todoIdlePaperEffectEnabled,
@@ -272,6 +360,10 @@ export function mergeTodoSettings(
       current.todoAccentColorOverridden,
     ),
     todoCheckboxShape: readTodoCheckboxShape(next.todoCheckboxShape, current.todoCheckboxShape),
+    todoWidgetBackgroundOpacity: readOpacity(
+      next.todoWidgetBackgroundOpacity,
+      current.todoWidgetBackgroundOpacity,
+    ),
     todoIdlePaperEffectEnabled: readBoolean(
       next.todoIdlePaperEffectEnabled,
       current.todoIdlePaperEffectEnabled,
@@ -317,6 +409,11 @@ function readNumber(value: unknown, fallback: number): number {
 
 function readBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function readOpacity(value: unknown, fallback: number): number {
+  const parsed = readNumber(value, fallback);
+  return Math.min(1, Math.max(0.01, parsed));
 }
 
 function readThemeMode(value: unknown, fallback: ThemeMode): ThemeMode {

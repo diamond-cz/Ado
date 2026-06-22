@@ -7,6 +7,10 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
+import "@fullcalendar/react/skeleton.css";
+import "@fullcalendar/react/themes/classic/theme.css";
+import "@fullcalendar/react/themes/classic/palette.css";
 import {
   Box,
   Button,
@@ -19,6 +23,7 @@ import {
   Fab,
   FormControl,
   FormControlLabel,
+  GlobalStyles,
   IconButton,
   InputLabel,
   ListItemText,
@@ -39,38 +44,42 @@ import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import RemoveRoundedIcon from "@mui/icons-material/RemoveRounded";
 import RadioButtonUncheckedRoundedIcon from "@mui/icons-material/RadioButtonUncheckedRounded";
-import FullCalendar from "@fullcalendar/react";
-import dayGridPlugin from "@fullcalendar/daygrid";
-import timeGridPlugin from "@fullcalendar/timegrid";
-import listPlugin from "@fullcalendar/list";
+import FullCalendar, {
+  type CalendarRef,
+  type DateClickInfo as DateClickArg,
+  type DateSelectInfo as DateSelectArg,
+  type DayCellInfo as DayCellContentArg,
+  type EventClickInfo as EventClickArg,
+  type EventDisplayInfo as EventContentArg,
+  type EventDropInfo as EventDropArg,
+  type EventInput,
+  type EventResizeDoneInfo as EventResizeDoneArg,
+  type EventSourceInput,
+  type PluginInput,
+  type SlotHeaderInfo as SlotLabelContentArg,
+} from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/react/daygrid";
+import timeGridPlugin from "@fullcalendar/react/timegrid";
+import listPlugin from "@fullcalendar/react/list";
+import classicThemePlugin from "@fullcalendar/react/themes/classic";
 import iCalendarPlugin from "@fullcalendar/icalendar";
 import { Allotment } from "allotment";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import interactionPlugin, {
-  type DateClickArg,
-  type EventResizeDoneArg,
-} from "@fullcalendar/interaction";
-import zhCnLocale from "@fullcalendar/core/locales/zh-cn";
+import interactionPlugin from "@fullcalendar/react/interaction";
+import zhCnLocale from "@fullcalendar/react/locales/zh-cn";
 import chineseDays from "chinese-days";
 import { Lunar } from "lunar-typescript";
-import type {
-  DateSelectArg,
-  DayCellContentArg,
-  EventClickArg,
-  EventContentArg,
-  EventDropArg,
-  EventInput,
-  EventSourceInput,
-  SlotLabelContentArg,
-} from "@fullcalendar/core";
 
 import { isInboxList, todoCompletionBlocker, useTodoStore } from "./useTodoStore";
 import { TodoEmoji } from "./TodoEmoji";
 import { TodoItem } from "./TodoItem";
-import { priorityMeta } from "./priority";
 import type { TodoFolder, TodoItem as TodoItemT, TodoList, TodoStatus } from "./types";
 import { ensureTodoReminderPermission } from "./todoReminders";
-import { registerTodoCalendarDropTarget } from "./todoCalendarDrag";
+import {
+  registerTodoCalendarDropTarget,
+  subscribeTodoCalendarDrag,
+  type TodoCalendarDragSnapshot,
+} from "./todoCalendarDrag";
 import { useStore } from "../../state/store";
 import { formatTodoZonedTime, todoTimeZoneShortLabel } from "../../lib/timeZones";
 
@@ -78,6 +87,7 @@ interface Props {
   isDark: boolean;
   initialView?: string;
   compact?: boolean;
+  accentColor?: string;
 }
 
 interface CalendarDraft {
@@ -108,6 +118,14 @@ const CUSTOM_MONTH_MIN = 2;
 const CUSTOM_MONTH_MAX = 6;
 const CUSTOM_AGENDA_MIN = 1;
 const CUSTOM_AGENDA_MAX = 31;
+const FULLCALENDAR_PLUGINS: PluginInput[] = [
+  dayGridPlugin,
+  timeGridPlugin,
+  listPlugin,
+  classicThemePlugin,
+  interactionPlugin,
+  iCalendarPlugin as unknown as PluginInput,
+];
 
 type CustomDurationKind = "days" | "weeks" | "months" | "agenda";
 
@@ -153,6 +171,22 @@ const CALENDAR_SUBSCRIPTION_COLORS = [
   "#7c3aed",
   "#dc2626",
   "#0891b2",
+] as const;
+const TODO_EVENT_COLOR_PALETTE = [
+  "#2563eb",
+  "#0f9f83",
+  "#d97706",
+  "#7c3aed",
+  "#dc2626",
+  "#0891b2",
+  "#e11d48",
+  "#16a34a",
+  "#4f46e5",
+  "#ea580c",
+  "#7c5f50",
+  "#be185d",
+  "#0d9488",
+  "#9333ea",
 ] as const;
 
 const MONTH_LABELS = [
@@ -385,9 +419,132 @@ function fullCalendarTimeToMinutes(value: string): number | null {
 }
 
 function localDateKeyToDate(value: string | null): Date | null {
-  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const match = value?.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/,
+  );
   if (!match) return null;
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    match[4] ? Number(match[4]) : 0,
+    match[5] ? Number(match[5]) : 0,
+    match[6] ? Number(match[6]) : 0,
+  );
+}
+
+interface TodoCalendarDragPreviewLayerProps {
+  items: TodoItemT[];
+  isDark: boolean;
+}
+
+function TodoCalendarDragPreviewLayer({
+  items,
+  isDark,
+}: TodoCalendarDragPreviewLayerProps) {
+  const theme = useTheme();
+  const [dragSnapshot, setDragSnapshot] = useState<TodoCalendarDragSnapshot | null>(
+    null,
+  );
+  const latestSnapshotRef = useRef<TodoCalendarDragSnapshot | null>(null);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const flushDragSnapshot = () => {
+      frameRef.current = null;
+      setDragSnapshot(latestSnapshotRef.current);
+    };
+
+    const unsubscribe = subscribeTodoCalendarDrag((nextSnapshot) => {
+      latestSnapshotRef.current = nextSnapshot;
+      if (frameRef.current == null) {
+        frameRef.current = window.requestAnimationFrame(flushDragSnapshot);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (frameRef.current != null) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
+      frameRef.current = null;
+    };
+  }, []);
+
+  const previewItem = useMemo(
+    () =>
+      dragSnapshot
+        ? items.find((item) => item.id === dragSnapshot.itemId) ?? null
+        : null,
+    [dragSnapshot?.itemId, items],
+  );
+
+  if (
+    !dragSnapshot ||
+    !previewItem ||
+    typeof document === "undefined" ||
+    typeof window === "undefined"
+  ) {
+    return null;
+  }
+
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const previewWidth = clampNumber(
+    dragSnapshot.sourceWidth ?? 280,
+    220,
+    Math.max(220, viewportWidth - 24),
+  );
+  const previewHeight = dragSnapshot.sourceHeight ?? 48;
+  const previewLeft = clampNumber(
+    dragSnapshot.clientX + 12,
+    12,
+    Math.max(12, viewportWidth - previewWidth - 12),
+  );
+  const previewTop = clampNumber(
+    dragSnapshot.clientY + 12,
+    12,
+    Math.max(12, viewportHeight - previewHeight - 12),
+  );
+
+  return createPortal(
+    <Box
+      sx={{
+        position: "fixed",
+        left: 0,
+        top: 0,
+        width: previewWidth,
+        zIndex: theme.zIndex.modal + 4,
+        pointerEvents: "none",
+        opacity: 0.96,
+        transform: `translate3d(${previewLeft}px, ${previewTop}px, 0)`,
+        willChange: "transform",
+        contain: "layout style paint",
+        filter: `drop-shadow(0 14px 26px ${alpha("#000", isDark ? 0.38 : 0.18)})`,
+      }}
+    >
+      <Box
+        sx={{
+          overflow: "hidden",
+          borderRadius: 1,
+          border: 1,
+          borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.18 : 0.12),
+          bgcolor: alpha(theme.palette.primary.main, isDark ? 0.18 : 0.11),
+        }}
+      >
+        <TodoItem
+          item={previewItem}
+          isDark={isDark}
+          draggable={false}
+          compactMeta
+          disableOuterMargin
+          flushOuterSpacing
+          forceDragHandleVisible
+        />
+      </Box>
+    </Box>,
+    document.body,
+  );
 }
 
 function itemCalendarDurationMs(item: TodoItemT): number {
@@ -410,6 +567,45 @@ function createCalendarSubscriptionId(): string {
 
 function calendarSubscriptionColor(index: number): string {
   return CALENDAR_SUBSCRIPTION_COLORS[index % CALENDAR_SUBSCRIPTION_COLORS.length];
+}
+
+function stableStringHash(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function todoEventColorIndex(
+  itemId: string,
+  priority: TodoItemT["priority"],
+  dueAt: number | null,
+): number {
+  const seed = `${priority}:${dueAt ?? 0}:${itemId}`;
+  return stableStringHash(seed) % TODO_EVENT_COLOR_PALETTE.length;
+}
+
+function todoEventColorByIndex(index: number): string {
+  return TODO_EVENT_COLOR_PALETTE[index % TODO_EVENT_COLOR_PALETTE.length];
+}
+
+function todoEventColorStyle(
+  color: string,
+  status: TodoStatus,
+  isDark: boolean,
+): {
+  backgroundColor: string;
+  borderColor: string;
+  textColor: string;
+} {
+  const completed = status === "completed";
+  return {
+    backgroundColor: alpha(color, completed ? (isDark ? 0.16 : 0.09) : (isDark ? 0.24 : 0.12)),
+    borderColor: alpha(color, completed ? (isDark ? 0.36 : 0.24) : (isDark ? 0.58 : 0.38)),
+    textColor: isDark ? "#f8fafc" : "#0f172a",
+  };
 }
 
 function createIcsBlobUrl(icsText: string): string {
@@ -566,6 +762,14 @@ function isTodoTimeGridView(viewType: string): boolean {
   );
 }
 
+function isTodoAgendaView(viewType: string): boolean {
+  return viewType === "customAgenda" || viewType.startsWith("list");
+}
+
+function updateCalendarApiSize(api: unknown): void {
+  (api as { updateSize?: () => void } | null | undefined)?.updateSize?.();
+}
+
 function parseChineseHolidayName(name: string): string | null {
   const [, chineseName] = name.split(",");
   return chineseName?.trim() || null;
@@ -662,13 +866,14 @@ export function TodoCalendar({
   isDark,
   initialView = "dayGridMonth",
   compact = false,
+  accentColor,
 }: Props) {
   const theme = useTheme();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const calendarSurfaceRef = useRef<HTMLDivElement | null>(null);
   const yearViewScrollRef = useRef<HTMLDivElement | null>(null);
   const yearViewMonthRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const calendarRef = useRef<FullCalendar | null>(null);
+  const calendarRef = useRef<CalendarRef | null>(null);
   const items = useTodoStore((s) => s.items);
   const folders = useTodoStore((s) => s.folders);
   const lists = useTodoStore((s) => s.lists);
@@ -929,8 +1134,8 @@ export function TodoCalendar({
         : calendarViewType === "customMonths"
           ? `${customMonthCount}月`
           : calendarViewType === "customAgenda"
-            ? `日程 ${agendaDayCount}天`
-          : "自定义";
+            ? `议程 ${agendaDayCount}天`
+            : "自定义";
   const isYearView = calendarViewType === "todoYear";
   const showInboxPane = !compact;
   const showInboxToggle = showInboxPane;
@@ -959,7 +1164,7 @@ export function TodoCalendar({
   }, [todoDayEndHour, todoDayStartHour]);
 
   const updateCalendarSize = useCallback(() => {
-    calendarRef.current?.getApi().updateSize();
+    updateCalendarApiSize(calendarRef.current?.getApi());
   }, []);
 
   const onCalendarSplitChange = useCallback(() => {
@@ -1076,49 +1281,67 @@ export function TodoCalendar({
     };
   }, [calendarSubscriptions]);
 
-  const events = useMemo<EventInput[]>(
-    () =>
-      items
-        .filter(
-          (item) =>
-            item.deletedAt == null &&
-            (item.status === "pending" ||
-              (calendarShowCompleted && item.status === "completed")) &&
-            item.dueAt != null &&
-            calendarVisibleListIds.has(item.listId),
-        )
-        .map((item) => {
-          const priority = priorityMeta(item.priority);
-          const start = item.dueAt ?? Date.now();
-          const hasRange = item.dueEndAt != null && item.dueEndAt > start;
-          return {
-            id: item.id,
-            title: item.content,
-            start,
-            end: hasRange ? item.dueEndAt ?? undefined : start + DEFAULT_EVENT_DURATION_MS,
-            display: "block",
-            backgroundColor:
-              item.status === "completed"
-                ? alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.1 : 0.055)
-                : alpha(priority.color, isDark ? 0.3 : 0.14),
-            borderColor:
-              item.status === "completed"
-                ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.2)
-                : alpha(priority.color, isDark ? 0.75 : 0.45),
-            textColor: isDark ? "#f8fafc" : "#0f172a",
-            extendedProps: {
-              priority: item.priority,
-              progress: item.progress,
-              status: item.status,
-              hasRange,
-              dueAt: item.dueAt,
-              dueEndAt: item.dueEndAt,
-              reminderEnabled: item.reminderEnabled,
-            },
-          };
-        }),
-    [calendarShowCompleted, calendarVisibleListIds, isDark, items],
-  );
+  const events = useMemo<EventInput[]>(() => {
+    const visibleItems = items
+      .filter(
+        (item) =>
+          item.deletedAt == null &&
+          (item.status === "pending" ||
+            (calendarShowCompleted && item.status === "completed")) &&
+          item.dueAt != null &&
+          calendarVisibleListIds.has(item.listId),
+      )
+      .sort((a, b) => {
+        const timeDelta = (a.dueAt ?? 0) - (b.dueAt ?? 0);
+        if (timeDelta !== 0) return timeDelta;
+        const priorityDelta = (a.priority ?? "").localeCompare(b.priority ?? "");
+        if (priorityDelta !== 0) return priorityDelta;
+        return a.id.localeCompare(b.id);
+      });
+    const usedColorIndexesByDay = new Map<string, Set<number>>();
+
+    return visibleItems.map((item) => {
+      const start = item.dueAt ?? Date.now();
+      const dayKey = localDayKey(start);
+      const usedColorIndexes = usedColorIndexesByDay.get(dayKey) ?? new Set<number>();
+      let colorIndex = todoEventColorIndex(item.id, item.priority, item.dueAt);
+      for (let attempt = 0; attempt < TODO_EVENT_COLOR_PALETTE.length; attempt += 1) {
+        if (!usedColorIndexes.has(colorIndex)) break;
+        colorIndex = (colorIndex + 1) % TODO_EVENT_COLOR_PALETTE.length;
+      }
+      usedColorIndexes.add(colorIndex);
+      usedColorIndexesByDay.set(dayKey, usedColorIndexes);
+
+      const itemColor = todoEventColorByIndex(colorIndex);
+      const eventColorStyle = todoEventColorStyle(itemColor, item.status, isDark);
+      const hasRange = item.dueEndAt != null && item.dueEndAt > start;
+      return {
+        id: item.id,
+        title: item.content,
+        start,
+        end: hasRange ? item.dueEndAt ?? undefined : start + DEFAULT_EVENT_DURATION_MS,
+        display: "block",
+        color: eventColorStyle.backgroundColor,
+        contrastColor: eventColorStyle.textColor,
+        backgroundColor: eventColorStyle.backgroundColor,
+        borderColor: eventColorStyle.borderColor,
+        textColor: eventColorStyle.textColor,
+        extendedProps: {
+          priority: item.priority,
+          color: itemColor,
+          backgroundColor: eventColorStyle.backgroundColor,
+          borderColor: eventColorStyle.borderColor,
+          textColor: eventColorStyle.textColor,
+          progress: item.progress,
+          status: item.status,
+          hasRange,
+          dueAt: item.dueAt,
+          dueEndAt: item.dueEndAt,
+          reminderEnabled: item.reminderEnabled,
+        },
+      };
+    });
+  }, [calendarShowCompleted, calendarVisibleListIds, isDark, items]);
 
   const calendarSubscriptionIds = useMemo(
     () => new Set(calendarSubscriptions.map((subscription) => subscription.id)),
@@ -1397,19 +1620,90 @@ export function TodoCalendar({
               bgcolor: subscription?.color ?? "primary.main",
             }}
           />
-          <Typography className="todo-calendar-event-title">
-            {arg.event.title || subscription?.name || "日程"}
-          </Typography>
           {timeText && (
             <Typography component="span" className="todo-calendar-event-time">
               {timeText}
             </Typography>
           )}
+          <Typography className="todo-calendar-event-title">
+            {arg.event.title || subscription?.name || "日程"}
+          </Typography>
         </Box>
       );
     }
 
     const completed = status === "completed";
+    const todoTimeText = isTodoAgendaView(arg.view.type)
+      ? formatEventTime(
+          arg.event.start,
+          arg.event.end,
+          Boolean(arg.event.extendedProps.hasRange),
+        )
+      : "";
+    const isEventPreview = arg.isMirror || arg.isDragging || arg.isResizing;
+    if (isEventPreview) {
+      return (
+        <Box
+          className="todo-calendar-event-content todo-calendar-todo-event-content is-drag-preview"
+          sx={{
+            boxSizing: "border-box",
+            minWidth: 0,
+            minHeight: 0,
+            width: "100%",
+            maxWidth: "100%",
+            height: "100%",
+            maxHeight: "100%",
+            display: "flex",
+            alignItems: "center",
+            gap: 0.5,
+            px: 0.35,
+            py: 0,
+            overflow: "hidden",
+            flexWrap: "nowrap",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {completed ? (
+            <CheckCircleRoundedIcon sx={{ fontSize: 14, color: "success.main", flexShrink: 0 }} />
+          ) : (
+            <RadioButtonUncheckedRoundedIcon
+              sx={{ fontSize: 14, color: "text.secondary", flexShrink: 0 }}
+            />
+          )}
+          {todoTimeText && (
+            <Typography
+              component="span"
+              className="todo-calendar-event-time todo-calendar-todo-event-time"
+              sx={{
+                flexShrink: 0,
+                fontSize: 11,
+                lineHeight: "18px",
+                fontWeight: 700,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {todoTimeText}
+            </Typography>
+          )}
+          <Typography
+            component="span"
+            className="todo-calendar-event-title"
+            sx={{
+              minWidth: 0,
+              flex: "1 1 auto",
+              fontSize: 12,
+              lineHeight: "18px",
+              fontWeight: 600,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {arg.event.title}
+          </Typography>
+        </Box>
+      );
+    }
     const eventItem = items.find((item) => item.id === arg.event.id) ?? null;
     const completionBlocker = eventItem ? todoCompletionBlocker(eventItem, items) : null;
     const completionLocked = !completed && completionBlocker != null;
@@ -1461,6 +1755,14 @@ export function TodoCalendar({
             </IconButton>
           </span>
         </Tooltip>
+        {todoTimeText && (
+          <Typography
+            component="span"
+            className="todo-calendar-event-time todo-calendar-todo-event-time"
+          >
+            {todoTimeText}
+          </Typography>
+        )}
         <Typography className="todo-calendar-event-title">{arg.event.title}</Typography>
         {reminderEnabled && (
           <AlarmRoundedIcon sx={{ fontSize: 13, color: "warning.main", flexShrink: 0 }} />
@@ -1654,7 +1956,7 @@ export function TodoCalendar({
     if (api) {
       api.gotoDate(targetDate);
       api.changeView(viewType);
-      window.requestAnimationFrame(() => api.updateSize());
+      window.requestAnimationFrame(() => updateCalendarApiSize(api));
     }
     setCalendarDate(targetDate);
     setCalendarViewType(viewType);
@@ -1667,7 +1969,7 @@ export function TodoCalendar({
     if (api) {
       api.gotoDate(date);
       api.changeView(viewType);
-      window.requestAnimationFrame(() => api.updateSize());
+      window.requestAnimationFrame(() => updateCalendarApiSize(api));
     }
     setCalendarViewType(viewType);
     setViewMenuAnchor(null);
@@ -1678,7 +1980,7 @@ export function TodoCalendar({
       const api = calendarRef.current?.getApi();
       api?.gotoDate(calendarDate);
       api?.changeView(viewType);
-      api?.updateSize();
+      updateCalendarApiSize(api);
       setCalendarViewType(viewType);
     }, 0);
   };
@@ -1983,27 +2285,30 @@ export function TodoCalendar({
     setSelectedItemId(arg.event.id);
   };
 
-  const getTodoDropDate = useCallback((clientX: number, clientY: number): Date | null => {
-    const root = calendarSurfaceRef.current ?? rootRef.current;
-    if (!root) return null;
-    const elements =
-      typeof document.elementsFromPoint === "function"
-        ? document.elementsFromPoint(clientX, clientY)
-        : [document.elementFromPoint(clientX, clientY)].filter(Boolean);
+  const getTodoDropDate = useCallback(
+    (clientX: number, clientY: number): Date | null => {
+      const root = calendarSurfaceRef.current ?? rootRef.current;
+      if (!root) return null;
+      const elements =
+        typeof document.elementsFromPoint === "function"
+          ? document.elementsFromPoint(clientX, clientY)
+          : [document.elementFromPoint(clientX, clientY)].filter(Boolean);
 
-    for (const element of elements) {
-      if (!(element instanceof HTMLElement) || !root.contains(element)) continue;
-      const dateElement = element.closest<HTMLElement>("[data-date]");
-      if (!dateElement || !root.contains(dateElement)) continue;
-      const date = localDateKeyToDate(dateElement.getAttribute("data-date"));
-      if (date) return date;
-    }
+      for (const element of elements) {
+        if (!(element instanceof HTMLElement) || !root.contains(element)) continue;
+        const dateElement = element.closest<HTMLElement>("[data-date]");
+        if (!dateElement || !root.contains(dateElement)) continue;
+        const date = localDateKeyToDate(dateElement.getAttribute("data-date"));
+        if (date) return date;
+      }
 
-    const apiDate = calendarRef.current?.getApi().getDate();
-    return apiDate
-      ? new Date(apiDate.getFullYear(), apiDate.getMonth(), apiDate.getDate())
-      : null;
-  }, []);
+      const apiDate = calendarRef.current?.getApi().getDate();
+      return apiDate
+        ? new Date(apiDate.getFullYear(), apiDate.getMonth(), apiDate.getDate())
+        : null;
+    },
+    [],
+  );
 
   const getTodoDropStartMs = useCallback(
     (clientX: number, clientY: number, durationMs: number): number | null => {
@@ -2033,7 +2338,12 @@ export function TodoCalendar({
       date.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
       return date.getTime();
     },
-    [calendarViewType, getTodoDropDate, todoDayTimeRange.slotMaxTime, todoDayTimeRange.slotMinTime],
+    [
+      calendarViewType,
+      getTodoDropDate,
+      todoDayTimeRange.slotMaxTime,
+      todoDayTimeRange.slotMinTime,
+    ],
   );
 
   const applyTodoCalendarDrop = useCallback(
@@ -2075,9 +2385,15 @@ export function TodoCalendar({
     });
   }, [applyTodoCalendarDrop]);
 
+  const calendarAccent = accentColor ?? theme.palette.primary.main;
+  const calendarTodayBg = alpha(calendarAccent, isDark ? 0.14 : 0.08);
   const borderColor = alpha(isDark ? "#f8fafc" : "#0f172a", 0.1);
   const subtleBg = alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.04 : 0.035);
   const hoverBg = alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.08 : 0.06);
+  const calendarButtonBg = alpha(calendarAccent, isDark ? 0.18 : 0.07);
+  const calendarButtonBorder = alpha(calendarAccent, isDark ? 0.34 : 0.22);
+  const calendarButtonActiveBg = alpha(calendarAccent, isDark ? 0.3 : 0.14);
+  const calendarButtonActiveBorder = alpha(calendarAccent, isDark ? 0.56 : 0.42);
   const rootClassName = [
     "todo-calendar-root",
     isYearView ? "is-year-view" : "",
@@ -2102,19 +2418,47 @@ export function TodoCalendar({
         "--fc-border-color": borderColor,
         "--fc-page-bg-color": "transparent",
         "--fc-neutral-bg-color": subtleBg,
-        "--fc-today-bg-color": alpha(theme.palette.primary.main, isDark ? 0.16 : 0.1),
+        "--fc-today-bg-color": calendarTodayBg,
         "--fc-now-indicator-color": theme.palette.error.main,
         "--fc-list-event-hover-bg-color": hoverBg,
+        "--fc-classic-button": calendarButtonBg,
+        "--fc-classic-button-border": calendarButtonBorder,
+        "--fc-classic-button-strong": calendarButtonActiveBg,
+        "--fc-classic-button-strong-border": calendarButtonActiveBorder,
+        "--fc-classic-button-outline": alpha(calendarAccent, 0.48),
+        "--fc-classic-button-foreground": theme.palette.text.primary,
+        "--fc-classic-primary": calendarAccent,
+        "--fc-classic-primary-foreground": theme.palette.getContrastText(calendarAccent),
+        "--fc-classic-event": calendarAccent,
+        "--fc-classic-event-contrast": theme.palette.getContrastText(calendarAccent),
+        "--fc-classic-highlight": alpha(calendarAccent, isDark ? 0.24 : 0.14),
+        "--fc-classic-today": calendarTodayBg,
+        "--fc-classic-now": theme.palette.error.main,
+        "--fc-classic-background": "transparent",
+        "--fc-classic-faint": subtleBg,
+        "--fc-classic-muted": hoverBg,
+        "--fc-classic-strong": alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.16 : 0.12),
+        "--fc-classic-foreground": theme.palette.text.primary,
+        "--fc-classic-faint-foreground": theme.palette.text.disabled,
+        "--fc-classic-muted-foreground": theme.palette.text.secondary,
+        "--fc-classic-border": borderColor,
+        "--fc-classic-strong-border": alpha(isDark ? "#f8fafc" : "#0f172a", 0.22),
         "--separator-border": inboxPaneCollapsed ? "transparent" : borderColor,
-        "& .fc": {
+        "& .todo-calendar-fullcalendar, & .fc": {
           height: "100%",
           color: "text.primary",
           fontFamily: theme.typography.fontFamily,
           fontSize: 13,
         },
-        "&.is-year-view .fc": {
+        "&.is-year-view .todo-calendar-fullcalendar, &.is-year-view .fc": {
           height: "auto !important",
           minHeight: "0 !important",
+        },
+        "&.is-year-view .todo-calendar-fullcalendar > div:nth-of-type(n + 2)": {
+          display: "none !important",
+          height: "0 !important",
+          minHeight: "0 !important",
+          overflow: "hidden !important",
         },
         "& .fc .fc-toolbar.fc-header-toolbar": {
           minHeight: compact ? 38 : 44,
@@ -2148,16 +2492,16 @@ export function TodoCalendar({
           color: "text.primary",
         },
         "& .fc .fc-button-primary:not(:disabled).fc-button-active, & .fc .fc-button-primary:not(:disabled):active": {
-          borderColor: alpha(theme.palette.primary.main, 0.45),
-          bgcolor: alpha(theme.palette.primary.main, isDark ? 0.22 : 0.12),
-          color: "primary.main",
+          borderColor: calendarButtonActiveBorder,
+          bgcolor: calendarButtonActiveBg,
+          color: calendarAccent,
         },
-        "&.is-year-view .fc .fc-yearView-button": {
-          borderColor: alpha(theme.palette.primary.main, 0.45),
-          bgcolor: alpha(theme.palette.primary.main, isDark ? 0.22 : 0.12),
-          color: "primary.main",
+        "& .todo-calendar-view-shortcut-button.is-selected, &.is-year-view .todo-calendar-view-shortcut-button.is-year-view-button": {
+          borderColor: `${calendarButtonActiveBorder} !important`,
+          bgcolor: `${calendarButtonActiveBg} !important`,
+          color: `${calendarAccent} !important`,
         },
-        "& .fc .fc-yearTitle-button, & .fc .fc-yearTitle-button:hover, & .fc .fc-yearTitle-button:active": {
+        "& .todo-calendar-year-title-button, & .todo-calendar-year-title-button:hover, & .todo-calendar-year-title-button:active, & .fc .fc-yearTitle-button, & .fc .fc-yearTitle-button:hover, & .fc .fc-yearTitle-button:active": {
           borderColor: "transparent",
           bgcolor: "transparent",
           color: "text.primary",
@@ -2172,7 +2516,7 @@ export function TodoCalendar({
           color: "text.disabled",
           opacity: 1,
         },
-        "& .fc .fc-inboxToggle-button": {
+        "& .todo-calendar-inbox-toggle-button, & .fc .fc-inboxToggle-button": {
           width: compact ? 26 : 30,
           minWidth: compact ? 26 : 30,
           px: "0 !important",
@@ -2181,15 +2525,15 @@ export function TodoCalendar({
           justifyContent: "center",
           fontSize: 0,
         },
-        "& .fc .fc-inboxToggle-button::before": {
-          content: '""',
+        "& .todo-calendar-inbox-toggle-icon": {
           width: compact ? 16 : 18,
           height: compact ? 16 : 18,
+          display: "block",
           bgcolor: "currentColor",
           WebkitMask: `${CALENDAR_INBOX_COLLAPSE_ICON} center / contain no-repeat`,
           mask: `${CALENDAR_INBOX_COLLAPSE_ICON} center / contain no-repeat`,
         },
-        "&.is-inbox-collapsed .fc .fc-inboxToggle-button::before": {
+        "&.is-inbox-collapsed .todo-calendar-inbox-toggle-icon": {
           WebkitMask: `${CALENDAR_INBOX_EXPAND_ICON} center / contain no-repeat`,
           mask: `${CALENDAR_INBOX_EXPAND_ICON} center / contain no-repeat`,
         },
@@ -2247,9 +2591,12 @@ export function TodoCalendar({
           color: "primary.main",
           fontWeight: 800,
         },
-        "& .fc .fc-listFilter-button, & .fc .fc-importCalendar-button, & .fc .fc-viewPicker-button": {
-          borderColor: alpha(theme.palette.primary.main, 0.35),
-          color: "primary.main",
+        "& .todo-calendar-accent-button, & .fc .fc-listFilter-button, & .fc .fc-importCalendar-button, & .fc .fc-viewPicker-button": {
+          borderColor: `${alpha(calendarAccent, 0.35)} !important`,
+          color: `${calendarAccent} !important`,
+        },
+        "& .todo-calendar-accent-button:hover": {
+          bgcolor: `${alpha(calendarAccent, isDark ? 0.18 : 0.08)} !important`,
         },
         "& .fc .fc-timegrid-slot-label, & .fc .fc-list-day-text, & .fc .fc-list-day-side-text": {
           color: "text.secondary",
@@ -2342,6 +2689,19 @@ export function TodoCalendar({
           cursor: "pointer",
           boxShadow: "none",
         },
+        "& .todo-calendar-event.is-todo": {
+          bgcolor: "var(--todo-calendar-event-bg, var(--fc-event-color)) !important",
+          borderColor: "var(--todo-calendar-event-border, var(--fc-event-color)) !important",
+          color: "var(--todo-calendar-event-text, inherit) !important",
+        },
+        "& .todo-calendar-event.is-todo .fc-event-main, & .todo-calendar-event.is-todo .todo-calendar-event-content": {
+          color: "var(--todo-calendar-event-text, inherit) !important",
+        },
+        "& .fc .fc-list-event.todo-calendar-event.is-todo > *": {
+          bgcolor: "var(--todo-calendar-event-bg, var(--fc-event-color)) !important",
+          borderColor: "var(--todo-calendar-event-border, var(--fc-event-color)) !important",
+          color: "var(--todo-calendar-event-text, inherit) !important",
+        },
         "& .todo-calendar-event .fc-event-main": {
           color: "inherit",
         },
@@ -2370,6 +2730,9 @@ export function TodoCalendar({
           lineHeight: 1.35,
           fontWeight: 700,
           opacity: 0.82,
+        },
+        "& .todo-calendar-todo-event-time": {
+          whiteSpace: "nowrap",
         },
         "& .todo-calendar-todo-event-content .todo-calendar-event-title": {
           flexBasis: 0,
@@ -2521,6 +2884,108 @@ export function TodoCalendar({
         },
       }}
     >
+      <TodoCalendarDragPreviewLayer items={items} isDark={isDark} />
+      <GlobalStyles
+        styles={{
+          ".todo-calendar-more-popover": {
+            position: "fixed !important",
+            top: "50vh !important",
+            left: "50vw !important",
+            right: "auto !important",
+            bottom: "auto !important",
+            transform: "translate(-50%, -50%) !important",
+            width: "min(420px, calc(100vw - 48px))",
+            maxWidth: "calc(100vw - 48px)",
+            maxHeight: "min(72vh, 520px)",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            boxSizing: "border-box",
+            backgroundColor: theme.palette.background.paper,
+            border: `1px solid ${borderColor}`,
+            borderRadius: "8px",
+            boxShadow: theme.shadows[8],
+            color: theme.palette.text.primary,
+            zIndex: `${theme.zIndex.modal + 1} !important`,
+          },
+          ".todo-calendar-more-popover > div:nth-of-type(2)": {
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            minHeight: "40px",
+            padding: "8px 10px",
+            backgroundColor: subtleBg,
+            borderBottom: `1px solid ${borderColor}`,
+            color: theme.palette.text.primary,
+          },
+          ".todo-calendar-more-popover > div:nth-of-type(2) > div:first-of-type": {
+            flex: "1 1 auto",
+            minWidth: 0,
+            fontWeight: 700,
+          },
+          ".todo-calendar-more-popover > div:nth-of-type(2) button": {
+            width: "28px",
+            height: "28px",
+            minWidth: "28px",
+            border: 0,
+            borderRadius: "6px",
+            color: theme.palette.text.secondary,
+            backgroundColor: "transparent",
+          },
+          ".todo-calendar-more-popover > div:nth-of-type(2) button:hover": {
+            color: theme.palette.text.primary,
+            backgroundColor: hoverBg,
+          },
+          ".todo-calendar-more-popover > div:nth-of-type(3)": {
+            flex: "1 1 auto",
+            minHeight: 0,
+            padding: "6px",
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+            backgroundColor: theme.palette.background.paper,
+          },
+          ".todo-calendar-event.is-drag-preview, .todo-calendar-event.fc-3l, .todo-calendar-event.fc-Yl, .todo-calendar-event.fc-event-mirror, .todo-calendar-event.fc-event-dragging, .todo-calendar-event.fc-event-resizing": {
+            boxSizing: "border-box !important",
+            maxWidth: "100% !important",
+            overflow: "hidden !important",
+          },
+          ".todo-calendar-event.is-drag-preview .fc-event-main, .todo-calendar-event.fc-3l .fc-event-main, .todo-calendar-event.fc-Yl .fc-event-main, .todo-calendar-event.fc-event-mirror .fc-event-main, .todo-calendar-event.fc-event-dragging .fc-event-main, .todo-calendar-event.fc-event-resizing .fc-event-main": {
+            minWidth: "0 !important",
+            maxWidth: "100% !important",
+            overflow: "hidden !important",
+          },
+          ".todo-calendar-event.is-drag-preview .todo-calendar-event-content, .todo-calendar-event.fc-3l .todo-calendar-event-content, .todo-calendar-event.fc-Yl .todo-calendar-event-content, .todo-calendar-event.fc-event-mirror .todo-calendar-event-content, .todo-calendar-event.fc-event-dragging .todo-calendar-event-content, .todo-calendar-event.fc-event-resizing .todo-calendar-event-content": {
+            boxSizing: "border-box !important",
+            minWidth: "0 !important",
+            maxWidth: "100% !important",
+            height: "100% !important",
+            maxHeight: "100% !important",
+            display: "flex !important",
+            alignItems: "center !important",
+            flexWrap: "nowrap !important",
+            whiteSpace: "nowrap !important",
+            overflow: "hidden !important",
+          },
+          ".todo-calendar-event.is-drag-preview .MuiIconButton-root, .todo-calendar-event.fc-3l .MuiIconButton-root, .todo-calendar-event.fc-Yl .MuiIconButton-root, .todo-calendar-event.fc-event-mirror .MuiIconButton-root, .todo-calendar-event.fc-event-dragging .MuiIconButton-root, .todo-calendar-event.fc-event-resizing .MuiIconButton-root": {
+            width: "18px !important",
+            height: "18px !important",
+            padding: "0 !important",
+            flexShrink: "0 !important",
+          },
+          ".todo-calendar-event.is-drag-preview .todo-calendar-event-time, .todo-calendar-event.fc-3l .todo-calendar-event-time, .todo-calendar-event.fc-Yl .todo-calendar-event-time, .todo-calendar-event.fc-event-mirror .todo-calendar-event-time, .todo-calendar-event.fc-event-dragging .todo-calendar-event-time, .todo-calendar-event.fc-event-resizing .todo-calendar-event-time": {
+            flexShrink: "0 !important",
+            whiteSpace: "nowrap !important",
+          },
+          ".todo-calendar-event.is-drag-preview .todo-calendar-event-title, .todo-calendar-event.fc-3l .todo-calendar-event-title, .todo-calendar-event.fc-Yl .todo-calendar-event-title, .todo-calendar-event.fc-event-mirror .todo-calendar-event-title, .todo-calendar-event.fc-event-dragging .todo-calendar-event-title, .todo-calendar-event.fc-event-resizing .todo-calendar-event-title": {
+            minWidth: "0 !important",
+            flex: "1 1 auto !important",
+            overflow: "hidden !important",
+            textOverflow: "ellipsis !important",
+            whiteSpace: "nowrap !important",
+          },
+        }}
+      />
       {isYearView && (
         <Fab
           color="primary"
@@ -2645,10 +3110,16 @@ export function TodoCalendar({
                   : "2px solid transparent",
                 outlineOffset: -2,
                 transition: "outline-color 120ms ease",
-                "& > .fc": {
+                "& > .todo-calendar-fullcalendar, & > .fc": {
                   flex: isYearView ? "0 0 auto" : "1 1 auto",
                   minHeight: 0,
                   height: isYearView ? "auto !important" : "100%",
+                },
+                "& > .todo-calendar-fullcalendar > div:nth-of-type(n + 2)": {
+                  display: isYearView ? "none !important" : undefined,
+                  height: isYearView ? "0 !important" : undefined,
+                  minHeight: isYearView ? "0 !important" : undefined,
+                  overflow: isYearView ? "hidden !important" : undefined,
                 },
                 "& .fc-view-harness": {
                   display: isYearView ? "none !important" : undefined,
@@ -2660,13 +3131,14 @@ export function TodoCalendar({
             >
           <FullCalendar
             ref={calendarRef}
-            plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin, iCalendarPlugin]}
+            className="todo-calendar-fullcalendar"
+            popoverClass="todo-calendar-more-popover"
+            plugins={FULLCALENDAR_PLUGINS}
             locale={zhCnLocale}
             timeZone="local"
             initialView={initialView}
             firstDay={todoFirstDay}
             weekNumbers={todoShowWeekNumbers}
-            weekText="周"
             height={isYearView ? "auto" : "100%"}
             expandRows
             nowIndicator
@@ -2675,108 +3147,142 @@ export function TodoCalendar({
             selectMirror
             editable
             eventDurationEditable
-            dayMaxEvents
+            dayMaxEvents={false}
+            dayMaxEventRows={false}
             slotEventOverlap={false}
             eventMaxStack={compact ? 2 : 4}
             allDaySlot={false}
             businessHours={todoDayTimeRange.businessHours}
             slotMinTime={todoDayTimeRange.slotMinTime}
             slotMaxTime={todoDayTimeRange.slotMaxTime}
-            slotLabelFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-            slotLabelContent={renderSlotLabel}
+            slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+            slotHeaderContent={renderSlotLabel}
             eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-            customButtons={{
+            buttons={{
               inboxToggle: {
+                display: "icon",
+                iconContent: () => (
+                  <Box component="span" className="todo-calendar-inbox-toggle-icon" />
+                ),
+                className: () => "todo-calendar-inbox-toggle-button",
                 text: "",
                 hint: inboxPaneCollapsed ? "展开收集箱" : "隐藏收集箱",
                 click: toggleInboxPaneCollapsed,
               },
-              calendarToday: {
+              today: {
                 text: "今天",
-                click: goCalendarToday,
+                click: (event: MouseEvent) => {
+                  event.preventDefault();
+                  goCalendarToday();
+                },
               },
-              calendarPrev: {
-                icon: "chevron-left",
-                click: () => goCalendarByStep(-1),
+              prev: {
+                text: "<",
+                hint: "上一页",
+                click: (event: MouseEvent) => {
+                  event.preventDefault();
+                  goCalendarByStep(-1);
+                },
               },
-              calendarNext: {
-                icon: "chevron-right",
-                click: () => goCalendarByStep(1),
+              next: {
+                text: ">",
+                hint: "下一页",
+                click: (event: MouseEvent) => {
+                  event.preventDefault();
+                  goCalendarByStep(1);
+                },
               },
               yearToday: {
                 text: "今天",
                 click: goTodayInYearView,
               },
               yearPrev: {
-                icon: "chevron-left",
+                text: "<",
+                hint: "上一年",
                 click: () => goYear(-1),
               },
               yearNext: {
-                icon: "chevron-right",
+                text: ">",
+                hint: "下一年",
                 click: () => goYear(1),
               },
               yearTitle: {
+                className: () => "todo-calendar-year-title-button",
                 text: `${calendarDate.getFullYear()}年`,
                 click: () => {},
               },
               listFilter: {
+                className: () => "todo-calendar-accent-button",
                 text: listFilterButtonText,
-                click: (_event, element) => setListFilterMenuAnchor(element),
+                click: (event: MouseEvent) =>
+                  setListFilterMenuAnchor(event.currentTarget as HTMLElement),
               },
               importCalendar: {
+                className: () => "todo-calendar-accent-button",
                 text: "导入",
-                click: (_event, element) => setSubscriptionMenuAnchor(element),
+                click: (event: MouseEvent) =>
+                  setSubscriptionMenuAnchor(event.currentTarget as HTMLElement),
               },
               viewPicker: {
+                className: () => "todo-calendar-accent-button",
                 text: viewPickerLabel,
-                click: (_event, element) => setViewMenuAnchor(element),
+                click: (event: MouseEvent) =>
+                  setViewMenuAnchor(event.currentTarget as HTMLElement),
               },
               yearView: {
+                className: () =>
+                  [
+                    "todo-calendar-view-shortcut-button",
+                    "is-year-view-button",
+                    isYearView ? "is-selected" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
                 text: "年",
                 click: () => changeCalendarView("todoYear"),
               },
             }}
             headerToolbar={{
               left: showInboxToggle
-                ? "inboxToggle calendarToday calendarPrev,calendarNext"
-                : "calendarToday calendarPrev,calendarNext",
+                ? "inboxToggle today prev,next"
+                : "today prev,next",
               center: isYearView ? "yearTitle" : "title",
               right: compact
                 ? ""
                 : "listFilter importCalendar viewPicker timeGridDay,dayGridWeek,dayGridMonth,yearView,customAgenda",
             }}
-            buttonText={{
-              today: "今天",
-              day: "日",
-              week: "周",
-              month: "月",
-              list: "议程",
-            }}
+            todayText="今天"
+            dayText="日"
+            weekTextShort="周"
+            weekTextLong="周"
+            monthText="月"
+            yearText="年"
+            listText="议程"
             views={{
               customDays: {
                 type: "timeGrid",
                 duration: { days: customDayCount },
-                buttonText: `${customDayCount}日`,
+                buttonTextKey: "day",
               },
               customWeeks: {
                 type: "dayGrid",
                 duration: { weeks: customWeekCount },
-                buttonText: `${customWeekCount}周`,
+                buttonTextKey: "week",
               },
               customMonths: {
                 type: "dayGrid",
                 duration: { months: customMonthCount },
-                buttonText: `${customMonthCount}月`,
+                buttonTextKey: "month",
               },
               todoYear: {
                 type: "dayGrid",
                 duration: { days: 1 },
-                buttonText: "年",
+                buttonTextKey: "year",
               },
               customAgenda: {
                 type: "list",
                 duration: { days: agendaDayCount },
-                buttonText: "议程",
+                buttonTextKey: "list",
                 noEventsContent: "没有带日期的待办",
               },
             }}
@@ -2798,8 +3304,37 @@ export function TodoCalendar({
             eventDrop={onEventDrop}
             eventResize={onEventResize}
             eventContent={renderCalendarEvent}
-            eventDidMount={(arg) => {
+            eventDidMount={(arg: EventContentArg & { el: HTMLElement }) => {
               if (!isTodoCalendarStatus(arg.event.extendedProps.status)) return;
+              if (arg.isMirror || arg.isDragging || arg.isResizing) {
+                arg.el.style.boxSizing = "border-box";
+                arg.el.style.maxWidth = "100%";
+                arg.el.style.overflow = "hidden";
+              }
+              const eventBg =
+                typeof arg.event.extendedProps.backgroundColor === "string"
+                  ? arg.event.extendedProps.backgroundColor
+                  : undefined;
+              const eventBorder =
+                typeof arg.event.extendedProps.borderColor === "string"
+                  ? arg.event.extendedProps.borderColor
+                  : eventBg;
+              const eventText =
+                typeof arg.event.extendedProps.textColor === "string"
+                  ? arg.event.extendedProps.textColor
+                  : isDark
+                    ? "#f8fafc"
+                    : "#0f172a";
+              if (eventBg) {
+                arg.el.style.setProperty("--todo-calendar-event-bg", eventBg);
+                arg.el.style.setProperty("--todo-calendar-event-border", eventBorder ?? eventBg);
+                arg.el.style.setProperty("--todo-calendar-event-text", eventText);
+                arg.el.style.setProperty("--fc-event-color", eventBg);
+                arg.el.style.setProperty("--fc-event-contrast-color", eventText);
+                arg.el.style.backgroundColor = eventBg;
+                arg.el.style.borderColor = eventBorder ?? eventBg;
+                arg.el.style.color = eventText;
+              }
               arg.el.removeAttribute("title");
               arg.el.removeAttribute("aria-describedby");
               arg.el.querySelectorAll("[title], [aria-describedby]").forEach((node) => {
@@ -2807,15 +3342,15 @@ export function TodoCalendar({
                 node.removeAttribute("aria-describedby");
               });
             }}
-            dayCellContent={renderCalendarDayCell}
-            dayCellClassNames={(arg) => {
+            dayCellTopContent={renderCalendarDayCell}
+            dayCellClass={(arg: DayCellContentArg) => {
               const classNames: string[] = [];
               const isDayGridView = isTodoDayGridView(arg.view.type);
               const isMonthView = isMonthDayGridView(arg.view.type);
               if (isDayGridView && todoShowWeekNumbers && arg.date.getDay() === todoFirstDay) {
                 classNames.push("todo-calendar-week-number-cell");
               }
-              if (!isMonthView || !todoShowChineseCalendar) return classNames;
+              if (!isMonthView || !todoShowChineseCalendar) return classNames.join(" ");
               const meta = getChineseCalendarMeta(arg.date);
               if (meta.holidayName) {
                 classNames.push("todo-calendar-holiday-day");
@@ -2827,9 +3362,9 @@ export function TodoCalendar({
               if (meta.solarTerm) {
                 classNames.push("todo-calendar-solar-term-day");
               }
-              return classNames;
+              return classNames.join(" ");
             }}
-            eventClassNames={(arg) => {
+            eventClass={(arg: EventContentArg) => {
               const classNames = ["todo-calendar-event"];
               const sourceId = arg.event.source?.id ?? "";
               if (
@@ -2837,7 +3372,7 @@ export function TodoCalendar({
                 !isTodoCalendarStatus(arg.event.extendedProps.status)
               ) {
                 classNames.push("is-imported");
-                return classNames;
+                return classNames.join(" ");
               }
               classNames.push("is-todo");
               if (arg.event.id === selectedItemId) {
@@ -2846,7 +3381,10 @@ export function TodoCalendar({
               if (arg.event.extendedProps.status === "completed") {
                 classNames.push("is-completed");
               }
-              return classNames;
+              if (arg.isMirror || arg.isDragging || arg.isResizing) {
+                classNames.push("is-drag-preview");
+              }
+              return classNames.join(" ");
             }}
           />
               {isYearView && renderYearView()}
@@ -3217,7 +3755,7 @@ export function TodoCalendar({
           selected={calendarViewType === "customAgenda"}
           onClick={() => changeCalendarView("customAgenda")}
         >
-          日程
+          议程
         </MenuItem>
         <Divider />
         {renderCustomDurationItem({
@@ -3248,7 +3786,7 @@ export function TodoCalendar({
           viewType: "customMonths",
         })}
         {renderCustomDurationItem({
-          label: "日程",
+          label: "议程",
           valueLabel: `${agendaDayCount}天`,
           selected: calendarViewType === "customAgenda",
           minDisabled: agendaDayCount <= CUSTOM_AGENDA_MIN,

@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { CssBaseline, ThemeProvider } from "@mui/material";
+import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import "allotment/dist/style.css";
 
 import TodoPanel from "./components/todo/TodoPanel";
+import TodoWidgetWindow from "./components/todo/TodoWidgetWindow";
 import { SnackbarHost } from "./components/SnackbarHost";
 import { buildTheme } from "./theme";
 import {
@@ -21,9 +23,12 @@ export default function App() {
   const todoAccentColorOverridden = useStore((s) => s.appSettings.todoAccentColorOverridden);
   const todoColorThemeId = useStore((s) => s.appSettings.todoColorTheme);
   const todoColorThemes = useStore((s) => s.appSettings.todoColorThemes);
+  const hotkeyRecording = useStore((s) => s.hotkeyRecording);
+  const todoWidgetHotkey = useStore((s) => s.hotkeys.todoWidget);
   const [systemDarkMode, setSystemDarkMode] = useState(() =>
     window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
+  const [appView] = useState(() => readBootstrapView());
 
   const effectiveMode =
     todoThemeMode === "system" ? (systemDarkMode ? "dark" : "light") : todoThemeMode;
@@ -82,11 +87,63 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let alive = true;
+    ipc
+      .getWindowSettings()
+      .then((settings) => {
+        if (!alive) return;
+        useStore.setState({
+          autostart: settings.autostart,
+          closeToTray: settings.closeToTray,
+        });
+      })
+      .catch(() => {
+        /* Window settings are optional on first run. */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const shortcut = todoWidgetHotkey.trim();
+    if (!shortcut || hotkeyRecording) return;
+    let registered = false;
+
+    register(shortcut, (event) => {
+      if (event.state === "Pressed") {
+        ipc.toggleTodoWidgetWindow().catch(() => {});
+      }
+    })
+      .then(() => {
+        registered = true;
+      })
+      .catch(() => {});
+
+    return () => {
+      if (registered) {
+        unregister(shortcut).catch(() => {});
+      }
+    };
+  }, [hotkeyRecording, todoWidgetHotkey]);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <TodoPanel />
+      {appView === "todo-widget" ? <TodoWidgetWindow /> : <TodoPanel />}
       <SnackbarHost />
     </ThemeProvider>
   );
+}
+
+function readBootstrapView(): "todo" | "todo-widget" {
+  try {
+    const bootstrap = (window as unknown as {
+      __AEBOX_BOOTSTRAP__?: { view?: unknown };
+    }).__AEBOX_BOOTSTRAP__;
+    return bootstrap?.view === "todo-widget" ? "todo-widget" : "todo";
+  } catch {
+    return "todo";
+  }
 }

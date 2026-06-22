@@ -506,8 +506,22 @@ export function ItemContextMenu({
       <Menu
         open
         onClose={close}
+        container={document.body}
         anchorReference="anchorPosition"
         anchorPosition={{ top: anchor.y, left: anchor.x }}
+        marginThreshold={8}
+        slotProps={{
+          root: {
+            sx: { zIndex: (theme) => theme.zIndex.modal + 20 },
+          },
+          paper: {
+            sx: {
+              maxHeight: "calc(100vh - 16px)",
+              overflowY: "auto",
+              overscrollBehavior: "contain",
+            },
+          },
+        }}
       >
         <Box sx={{ px: 1.25, pt: 0.85, pb: 0.45 }}>
           <Box sx={{ mb: 0.45, fontSize: 11, fontWeight: 700, color: "text.disabled" }}>
@@ -744,6 +758,8 @@ export function ItemContextMenu({
         <Menu
           open
           hideBackdrop
+          container={document.body}
+          marginThreshold={8}
           disableAutoFocus
           disableAutoFocusItem
           disableEnforceFocus
@@ -760,7 +776,12 @@ export function ItemContextMenu({
               sx: { pointerEvents: "none" },
             },
             paper: {
-              sx: { pointerEvents: "auto" },
+              sx: {
+                pointerEvents: "auto",
+                maxHeight: "calc(100vh - 16px)",
+                overflowY: "auto",
+                overscrollBehavior: "contain",
+              },
               onMouseEnter: clearSubmenuCloseTimer,
               onMouseLeave: scheduleSubmenuClose,
             },
@@ -839,6 +860,8 @@ export function ItemContextMenu({
         <Menu
           open
           hideBackdrop
+          container={document.body}
+          marginThreshold={8}
           disableAutoFocus
           disableAutoFocusItem
           disableEnforceFocus
@@ -855,7 +878,12 @@ export function ItemContextMenu({
               sx: { pointerEvents: "none" },
             },
             paper: {
-              sx: { pointerEvents: "auto" },
+              sx: {
+                pointerEvents: "auto",
+                maxHeight: "calc(100vh - 16px)",
+                overflowY: "auto",
+                overscrollBehavior: "contain",
+              },
               onMouseEnter: () => {
                 clearSubmenuCloseTimer();
                 clearFolderSubmenuCloseTimer();

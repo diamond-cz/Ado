@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export const ipc = {
+  getWindowSettings: () => invoke<WindowSettingsPayload>("get_window_settings"),
+  setCloseToTray: (enabled: boolean) => invoke<void>("set_close_to_tray", { enabled }),
+  setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   getTodoSettings: () => invoke<TodoSettingsPayload>("get_todo_settings"),
   setTodoSettings: (settings: TodoSettingsPayload) =>
     invoke<void>("set_todo_settings", { settings }),
@@ -35,12 +38,19 @@ export const ipc = {
     ),
   parseTodoTimeText: <T = unknown>(text: string, nowMs?: number) =>
     invoke<T>("parse_todo_time_text", { text, nowMs: nowMs ?? null }),
+  openTodoWidgetWindow: () => invoke<void>("open_todo_widget_window"),
+  toggleTodoWidgetWindow: () => invoke<void>("toggle_todo_widget_window"),
   addTodayTask: (content: string, dueAtMs: number) =>
     invoke<string>("add_today_task", { content, dueAtMs }),
   addInboxTask: (content: string) => invoke<string>("add_inbox_task", { content }),
   listTodayTasks: <T = unknown>(startMs: number, endMs: number) =>
     invoke<T[]>("list_today_tasks", { startMs, endMs }),
 };
+
+export interface WindowSettingsPayload {
+  closeToTray: boolean;
+  autostart: boolean;
+}
 
 export interface TodoSettingsPayload {
   themeMode: "light" | "dark" | "system";
@@ -50,6 +60,7 @@ export interface TodoSettingsPayload {
   accentColor: string;
   accentColorOverridden: boolean;
   checkboxShape: "square" | "circle";
+  widgetBackgroundOpacity: number;
   idlePaperEffectEnabled: boolean;
   idlePaperLightEffect: "random" | "leaves" | "rain";
   webDavUrl: string;

@@ -7,22 +7,22 @@ export function SnackbarHost() {
 
   return (
     <>
-      {snacks.map((snack, index) => (
+      {snacks.map((s, i) => (
         <Snackbar
-          key={snack.id}
+          key={s.id}
           open
           autoHideDuration={3000}
-          onClose={() => dismiss(snack.id)}
+          onClose={() => dismiss(s.id)}
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
-          sx={{ top: 40 + index * 56 }}
+          sx={{ top: 40 + i * 56 }}
         >
           <Alert
-            severity={snack.severity}
+            severity={s.severity}
             variant="filled"
-            onClose={() => dismiss(snack.id)}
+            onClose={() => dismiss(s.id)}
             sx={{ minWidth: 240, maxWidth: 480 }}
           >
-            {snack.message}
+            {s.message}
           </Alert>
         </Snackbar>
       ))}

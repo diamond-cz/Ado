@@ -26,6 +26,45 @@ const ORDER_STEP = 1024;
 const SAVE_DEBOUNCE_MS = 300;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TODO_HISTORY_LIMIT = 100;
+const TODO_LIST_EMOJI_OPTIONS = [
+  "📝",
+  "✅",
+  "📌",
+  "📅",
+  "🎯",
+  "🚀",
+  "💡",
+  "⭐",
+  "📚",
+  "🛠️",
+  "💼",
+  "🏷️",
+  "🧩",
+  "🔖",
+  "🧠",
+  "⚡",
+  "🌱",
+  "🎨",
+  "📦",
+  "🗂️",
+];
+const TODO_FOLDER_EMOJI_OPTIONS = [
+  "📁",
+  "🗂️",
+  "📦",
+  "🧰",
+  "🏷️",
+  "📚",
+  "💼",
+  "🧭",
+  "🗃️",
+  "🧩",
+  "🚀",
+  "⭐",
+  "🌱",
+  "🎯",
+  "🛠️",
+];
 // Trashed items older than this are purged on next hydrate. Matches the
 // "30 天后永久删除" line shown in the trash header.
 const TRASH_TTL_MS = 30 * DAY_MS;
@@ -49,6 +88,18 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+}
+
+function randomTodoEmoji(options: string[]): string {
+  return options[Math.floor(Math.random() * options.length)] ?? options[0] ?? "";
+}
+
+export function randomTodoListEmoji(): string {
+  return randomTodoEmoji(TODO_LIST_EMOJI_OPTIONS);
+}
+
+export function randomTodoFolderEmoji(): string {
+  return randomTodoEmoji(TODO_FOLDER_EMOJI_OPTIONS);
 }
 
 function nextListOrder(lists: TodoList[]): number {
@@ -1035,11 +1086,11 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
     return list.id;
   },
 
-  addFolder: ({ name, emoji = "📁", order }) => {
+  addFolder: ({ name, emoji, order }) => {
     const folder: TodoFolder = {
       id: newId("folder"),
       name: name.trim() || "未命名文件夹",
-      emoji,
+      emoji: emoji?.trim() || randomTodoFolderEmoji(),
       order: order ?? nextRootOrder(get().folders, get().lists),
       createdAt: Date.now(),
     };
@@ -1086,7 +1137,7 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
     scheduleSave(get);
   },
 
-  addList: ({ name, emoji = "📋", folderId = null, order }) => {
+  addList: ({ name, emoji, folderId = null, order }) => {
     const normalizedFolderId =
       folderId != null && get().folders.some((folder) => folder.id === folderId)
         ? folderId
@@ -1094,7 +1145,7 @@ export const useTodoStore = create<TodoStore>((set, get) => ({
     const list: TodoList = {
       id: newId("list"),
       name: name.trim() || "未命名清单",
-      emoji,
+      emoji: emoji?.trim() || randomTodoListEmoji(),
       folderId: normalizedFolderId,
       order:
         order ??

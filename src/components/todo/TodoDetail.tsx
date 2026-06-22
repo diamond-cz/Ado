@@ -14,6 +14,7 @@ import {
   type ReactNode,
   type MouseEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Box,
   Button,
@@ -37,6 +38,10 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import {
+  HoverCountActionSlot,
+  hoverCountActionParentSx,
+} from "./TodoHoverActionSlot";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import CalendarTodayRoundedIcon from "@mui/icons-material/CalendarTodayRounded";
 import AlarmRoundedIcon from "@mui/icons-material/AlarmRounded";
@@ -73,6 +78,7 @@ import { PickerDay, type PickerDayProps } from "@mui/x-date-pickers/PickerDay";
 import dayjs, { type Dayjs } from "dayjs";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   PointerSensor,
   useSensor,
@@ -92,6 +98,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   DEFAULT_ADVANCED_FILTER,
   useTodoStore,
+  isInboxList,
   midpointOrder,
   applyFilter,
   applyDetailFilter,
@@ -630,6 +637,10 @@ export function TodoDetail({ isDark }: DetailProps) {
     if (selectedFilter.kind !== "list") return null;
     return lists.find((l) => l.id === selectedFilter.id) ?? null;
   }, [selectedFilter, lists]);
+  const inboxList = useMemo<TodoList | null>(
+    () => lists.find((list) => list.archivedAt == null && isInboxList(list)) ?? null,
+    [lists],
+  );
   const selectedFolder = useMemo<TodoFolder | null>(() => {
     if (selectedFilter.kind !== "folder") return null;
     return folders.find((folder) => folder.id === selectedFilter.id) ?? null;
@@ -692,6 +703,8 @@ export function TodoDetail({ isDark }: DetailProps) {
   const [pendingGroupJumpId, setPendingGroupJumpId] = useState<string | null>(null);
   const [activeDragKind, setActiveDragKind] =
     useState<ActiveDragKind | null>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [activeDragOverlayWidth, setActiveDragOverlayWidth] = useState<number | null>(null);
 
   useEffect(() => {
     setCustomFilterEditorOpen(false);
@@ -763,7 +776,9 @@ export function TodoDetail({ isDark }: DetailProps) {
     () => orderTodoItemsHierarchically(filteredItems, items),
     [filteredItems, items],
   );
-  const draggable = selectedFilter.kind === "list";
+  const draggable =
+    selectedFilter.kind === "list" ||
+    (selectedFilter.kind === "inbox" && inboxList != null);
   const isTrash = selectedFilter.kind === "trash";
   const isQuadrant = selectedFilter.kind === "quadrant";
   const isAdvanced = selectedFilter.kind === "advanced";
@@ -798,7 +813,11 @@ export function TodoDetail({ isDark }: DetailProps) {
     if (selectedFilter.kind === "completed") {
       return orderCompletedArchiveItems(filteredItems, items, completedArchiveSort);
     }
-    if (selectedFilter.kind === "list" || selectedFilter.kind === "folder") {
+    if (
+      selectedFilter.kind === "list" ||
+      selectedFilter.kind === "folder" ||
+      selectedFilter.kind === "inbox"
+    ) {
       const visibleItems = filteredItems.filter((item) =>
         item.deletedAt == null &&
         item.status !== "abandoned" &&
@@ -1132,12 +1151,28 @@ export function TodoDetail({ isDark }: DetailProps) {
 
   const onDragStart = (event: DragStartEvent) => {
     const activeId = String(event.active.id);
+    setActiveDragId(activeId);
     setActiveDragKind(activeId.startsWith("group:") ? "group" : "todo");
+    setActiveDragOverlayWidth(event.active.rect.current.initial?.width ?? null);
   };
 
   const clearActiveDragKind = () => {
     setActiveDragKind(null);
+    setActiveDragId(null);
+    setActiveDragOverlayWidth(null);
   };
+
+  const activeDragTodo =
+    activeDragKind === "todo" && activeDragId != null
+      ? itemById.get(activeDragId) ?? null
+      : null;
+  const activeDragGroupSection =
+    activeDragKind === "group" && activeDragId?.startsWith("group:")
+      ? visibleGroupSections.find(
+          (section) =>
+            section.group?.id === activeDragId.slice("group:".length),
+        ) ?? null
+      : null;
 
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over, delta } = event;
@@ -1871,7 +1906,6 @@ export function TodoDetail({ isDark }: DetailProps) {
               sections={boardSections}
               isDark={isDark}
               showNotePreview={showNotePreview}
-              getDepth={getCachedTodoDepth}
               visibleChildParentIds={visibleChildParentIds}
               collapsedTodoIds={collapsedTodoIds}
               onToggleCollapsed={toggleCollapsedTodo}
@@ -1879,7 +1913,6 @@ export function TodoDetail({ isDark }: DetailProps) {
               renderAddInput={renderBoardAddInput}
               onMoveItem={setItemGroup}
               onMakeChild={makeBoardItemChild}
-              onCreateGroup={() => openCreateGroupDialog()}
               onRenameGroup={openRenameGroupDialog}
               onDeleteGroup={(group) => {
                 if (
@@ -1933,6 +1966,7 @@ export function TodoDetail({ isDark }: DetailProps) {
                       }
                       isGroupDragActive={activeDragKind === "group"}
                       isTodoDragActive={activeDragKind === "todo"}
+                      hideTodoDragSource
                       canShiftDuringTodoDrag={
                         section.group == null ||
                         section.group.id !== selectedListGroups[0]?.id
@@ -1991,6 +2025,7 @@ export function TodoDetail({ isDark }: DetailProps) {
                               trashMode={isTrash}
                               sortableDroppable={activeDragKind === "todo"}
                               deferOffscreenRendering={activeDragKind == null}
+                              hideSortableDragSource
                               depth={getCachedTodoDepth(it)}
                               showNotePreview={showNotePreview}
                               contextPath={completedContext?.path}
@@ -2022,6 +2057,7 @@ export function TodoDetail({ isDark }: DetailProps) {
                         trashMode={isTrash}
                         sortableDroppable={activeDragKind === "todo"}
                         deferOffscreenRendering={activeDragKind == null}
+                        hideSortableDragSource
                         depth={getCachedTodoDepth(it)}
                         showNotePreview={showNotePreview}
                         contextPath={completedContext?.path}
@@ -2039,6 +2075,26 @@ export function TodoDetail({ isDark }: DetailProps) {
                   })
                 )}
               </SortableContext>
+              {typeof document !== "undefined" &&
+                createPortal(
+                  <DragOverlay dropAnimation={null}>
+                    <TodoDetailDragOverlay
+                      todo={activeDragTodo}
+                      groupSection={activeDragGroupSection}
+                      activeKind={activeDragKind}
+                      isDark={isDark}
+                      width={activeDragOverlayWidth}
+                      showNotePreview={showNotePreview}
+                      getDepth={getCachedTodoDepth}
+                      visibleChildParentIds={visibleChildParentIds}
+                      collapsedTodoIds={collapsedTodoIds}
+                      collapsedGroupIds={collapsedGroupIds}
+                      onToggleCollapsed={toggleCollapsedTodo}
+                      onExpand={expandCollapsedTodo}
+                    />
+                  </DragOverlay>,
+                  document.body,
+                )}
             </DndContext>
           ) : (
             useVirtualLayout ? (
@@ -2343,9 +2399,8 @@ function TodoFolderListSection({
           alignItems: "center",
           gap: 0.75,
           borderRadius: 1,
-          bgcolor: alpha(isDark ? "#60a5fa" : "#2563eb", isDark ? 0.14 : 0.08),
-          border: 1,
-          borderColor: alpha(isDark ? "#93c5fd" : "#2563eb", isDark ? 0.22 : 0.14),
+          bgcolor: "transparent",
+          border: 0,
         }}
       >
         <IconButton
@@ -2354,7 +2409,12 @@ function TodoFolderListSection({
             event.stopPropagation();
             onToggleListCollapsed(section.list.id);
           }}
-          sx={{ width: 22, height: 22, flexShrink: 0 }}
+          sx={{
+            width: 22,
+            height: 22,
+            flexShrink: 0,
+            "&:hover": { bgcolor: "transparent" },
+          }}
         >
           {listCollapsed ? (
             <KeyboardArrowRightRoundedIcon sx={{ fontSize: 16 }} />
@@ -2395,7 +2455,6 @@ function TodoFolderListSection({
           >
             {section.list.name}
           </Typography>
-          <ChevronRightRoundedIcon sx={{ fontSize: 15, color: "text.disabled" }} />
         </Box>
         <Typography sx={{ fontSize: 11, color: "text.secondary" }}>
           {section.itemCount}
@@ -2404,10 +2463,8 @@ function TodoFolderListSection({
       {!listCollapsed && (
         <Box
           sx={{
-            ml: 2,
-            pl: 1,
-            borderLeft: 1,
-            borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.12),
+            ml: 1.25,
+            pl: 0.5,
           }}
         >
           {section.groups.length === 0 ? (
@@ -2484,6 +2541,30 @@ function TodoFolderGroupSection({
     }
     onOpenList(list.id);
   };
+  const inlineContextPath: TodoItemContextPathPart[] = section.group
+    ? [
+        {
+          key: `group:${section.group.id}`,
+          label: section.title,
+          target: { kind: "group", id: section.group.id, listId: list.id },
+        },
+      ]
+    : [
+        {
+          key: `list:${list.id}`,
+          label: labelWithEmoji(list.emoji, list.name),
+          target: { kind: "list", id: list.id },
+        },
+      ];
+  const openInlineContextTarget = (target: TodoItemContextTarget) => {
+    if (target.kind === "group") {
+      onOpenGroup(target.listId, target.id);
+      return;
+    }
+    if (target.kind === "list") {
+      onOpenList(target.id);
+    }
+  };
 
   return (
     <Box sx={{ mb: 0.75 }}>
@@ -2497,7 +2578,7 @@ function TodoFolderGroupSection({
           alignItems: "center",
           gap: 0.7,
           borderRadius: 1,
-          bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.04),
+          bgcolor: "transparent",
         }}
       >
         {canCollapse ? (
@@ -2507,7 +2588,12 @@ function TodoFolderGroupSection({
               event.stopPropagation();
               onToggleGroupCollapsed(section.group!.id);
             }}
-            sx={{ width: 22, height: 22, flexShrink: 0 }}
+            sx={{
+              width: 22,
+              height: 22,
+              flexShrink: 0,
+              "&:hover": { bgcolor: "transparent" },
+            }}
           >
             {collapsed ? (
               <KeyboardArrowRightRoundedIcon sx={{ fontSize: 16 }} />
@@ -2537,7 +2623,6 @@ function TodoFolderGroupSection({
             cursor: "pointer",
           }}
         >
-          <SubjectRoundedIcon sx={{ fontSize: 15, color: "text.secondary" }} />
           <Typography
             sx={{
               minWidth: 0,
@@ -2551,7 +2636,6 @@ function TodoFolderGroupSection({
           >
             {section.title}
           </Typography>
-          <ChevronRightRoundedIcon sx={{ fontSize: 14, color: "text.disabled" }} />
         </Box>
         <Typography sx={{ fontSize: 11, color: "text.disabled" }}>
           {section.itemCount}
@@ -2560,10 +2644,8 @@ function TodoFolderGroupSection({
       {!collapsed && (
         <Box
           sx={{
-            ml: 2.75,
-            pl: 0.75,
-            borderLeft: 1,
-            borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.1),
+            ml: 1.4,
+            pl: 0.4,
           }}
         >
           {section.items.length === 0 ? (
@@ -2585,6 +2667,14 @@ function TodoFolderGroupSection({
                 collapsed={collapsedTodoIds.has(item.id)}
                 onToggleCollapsed={onToggleCollapsed}
                 onExpand={onExpand}
+                contextPath={inlineContextPath}
+                contextTooltip={
+                  section.group
+                    ? `打开分组：${section.title}`
+                    : `打开清单：${labelWithEmoji(list.emoji, list.name)}`
+                }
+                contextDisplay="inline"
+                onOpenContextPath={openInlineContextTarget}
               />
             ))
           )}
@@ -2592,6 +2682,136 @@ function TodoFolderGroupSection({
       )}
     </Box>
   );
+}
+
+interface TodoDetailDragOverlayProps {
+  todo: TodoItemT | null;
+  groupSection: TodoGroupSectionData | null;
+  activeKind: ActiveDragKind | null;
+  isDark: boolean;
+  width: number | null;
+  showNotePreview: boolean;
+  getDepth: (item: TodoItemT) => number;
+  visibleChildParentIds: Set<string>;
+  collapsedTodoIds: Set<string>;
+  collapsedGroupIds: Set<string>;
+  onToggleCollapsed: (id: string) => void;
+  onExpand: (id: string) => void;
+}
+
+function TodoDetailDragOverlay({
+  todo,
+  groupSection,
+  activeKind,
+  isDark,
+  width,
+  showNotePreview,
+  getDepth,
+  visibleChildParentIds,
+  collapsedTodoIds,
+  collapsedGroupIds,
+  onToggleCollapsed,
+  onExpand,
+}: TodoDetailDragOverlayProps) {
+  const overlayWidth = width ?? 360;
+
+  if (activeKind === "todo" && todo) {
+    return (
+      <Box
+        sx={{
+          width: overlayWidth,
+          maxWidth: "calc(100vw - 24px)",
+          pointerEvents: "none",
+          filter: isDark
+            ? "drop-shadow(0 16px 32px rgba(0, 0, 0, 0.42))"
+            : "drop-shadow(0 14px 28px rgba(15, 23, 42, 0.18))",
+          cursor: "grabbing",
+        }}
+      >
+        <TodoItem
+          item={todo}
+          isDark={isDark}
+          draggable={false}
+          forceDragHandleVisible
+          disableOuterMargin
+          depth={getDepth(todo)}
+          showNotePreview={showNotePreview}
+          hasChildren={visibleChildParentIds.has(todo.id)}
+          collapsed={collapsedTodoIds.has(todo.id)}
+          onToggleCollapsed={onToggleCollapsed}
+          onExpand={onExpand}
+        />
+      </Box>
+    );
+  }
+
+  if (activeKind === "group" && groupSection?.group) {
+    const collapsed = collapsedGroupIds.has(groupSection.group.id);
+    return (
+      <Box
+        sx={{
+          width: overlayWidth,
+          maxWidth: "calc(100vw - 24px)",
+          pointerEvents: "none",
+          cursor: "grabbing",
+        }}
+      >
+        <Box
+          sx={{
+            mx: 1,
+            px: 0.5,
+            height: 32,
+            display: "flex",
+            alignItems: "center",
+            gap: 0.25,
+            borderRadius: 1,
+            bgcolor: alpha(isDark ? "#1f2937" : "#ffffff", isDark ? 0.96 : 0.98),
+            color: "text.secondary",
+            boxShadow: isDark
+              ? "0 16px 32px rgba(0, 0, 0, 0.42)"
+              : "0 14px 28px rgba(15, 23, 42, 0.18)",
+          }}
+        >
+          <Box
+            sx={{
+              display: "flex",
+              width: 14,
+              height: 20,
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              color: "text.disabled",
+            }}
+          >
+            <DragIndicatorRoundedIcon sx={{ fontSize: 14 }} />
+          </Box>
+          {collapsed ? (
+            <KeyboardArrowRightRoundedIcon sx={{ fontSize: 15, flexShrink: 0 }} />
+          ) : (
+            <KeyboardArrowDownRoundedIcon sx={{ fontSize: 15, flexShrink: 0 }} />
+          )}
+          <Typography
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 12,
+              fontWeight: 700,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {groupSection.title}
+          </Typography>
+          <Typography sx={{ fontSize: 11, color: "text.disabled" }}>
+            {groupSection.itemCount}
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
+  return null;
 }
 
 interface TodoGroupSectionProps {
@@ -2604,6 +2824,7 @@ interface TodoGroupSectionProps {
   collapsed: boolean;
   isGroupDragActive: boolean;
   isTodoDragActive: boolean;
+  hideTodoDragSource?: boolean;
   canShiftDuringTodoDrag: boolean;
   onToggleGroupCollapsed: (id: string) => void;
   onToggleCollapsed: (id: string) => void;
@@ -2626,6 +2847,7 @@ function TodoGroupSection({
   collapsed,
   isGroupDragActive,
   isTodoDragActive,
+  hideTodoDragSource = false,
   canShiftDuringTodoDrag,
   onToggleGroupCollapsed,
   onToggleCollapsed,
@@ -2659,7 +2881,7 @@ function TodoGroupSection({
       : undefined,
     transition:
       allowHeaderTransform && sortable.isDragging ? undefined : sortable.transition,
-    opacity: sortable.isDragging ? 0.78 : 1,
+    opacity: sortable.isDragging ? 0 : 1,
     zIndex: sortable.isDragging ? 2 : undefined,
   };
 
@@ -2673,17 +2895,19 @@ function TodoGroupSection({
           mx: 1,
           mt: 0.6,
           mb: 0.2,
-          px: 1,
+          px: 0.5,
           height: 32,
           display: "flex",
           alignItems: "center",
-          gap: 0.75,
+          gap: 0.25,
           borderRadius: 1,
-          bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.04),
+          bgcolor: "transparent",
+          "&:hover": { bgcolor: "transparent" },
           "&:hover .todo-group-drag-handle, &:focus-within .todo-group-drag-handle": {
             opacity: 1,
             transform: "scale(1)",
           },
+          ...hoverCountActionParentSx(),
         }}
       >
         {section.group ? (
@@ -2693,8 +2917,8 @@ function TodoGroupSection({
             {...sortable.listeners}
             sx={{
               display: "flex",
-              width: 16,
-              height: 22,
+              width: 14,
+              height: 20,
               alignItems: "center",
               justifyContent: "center",
               color: "text.disabled",
@@ -2707,21 +2931,21 @@ function TodoGroupSection({
               ":active": { cursor: "grabbing" },
             }}
           >
-            <DragIndicatorRoundedIcon sx={{ fontSize: 15 }} />
+            <DragIndicatorRoundedIcon sx={{ fontSize: 14 }} />
           </Box>
         ) : (
-          <Box sx={{ width: 16, flexShrink: 0 }} />
+          <Box sx={{ width: 14, flexShrink: 0 }} />
         )}
         {section.group && (
           <IconButton
             size="small"
             onClick={() => onToggleGroupCollapsed(section.group!.id)}
-            sx={{ width: 22, height: 22, flexShrink: 0 }}
+            sx={{ width: 18, height: 20, p: 0, flexShrink: 0 }}
           >
             {collapsed ? (
-              <KeyboardArrowRightRoundedIcon sx={{ fontSize: 16 }} />
+              <KeyboardArrowRightRoundedIcon sx={{ fontSize: 15 }} />
             ) : (
-              <KeyboardArrowDownRoundedIcon sx={{ fontSize: 16 }} />
+              <KeyboardArrowDownRoundedIcon sx={{ fontSize: 15 }} />
             )}
           </IconButton>
         )}
@@ -2739,18 +2963,14 @@ function TodoGroupSection({
         >
           {section.title}
         </Typography>
-        <Typography sx={{ fontSize: 11, color: "text.disabled" }}>
-          {section.itemCount}
-        </Typography>
-        <Tooltip title="在此分组新建待办">
-          <IconButton
-            size="small"
-            onClick={() => onAddItem(groupId)}
-            sx={{ width: 24, height: 24 }}
-          >
-            <AddRoundedIcon sx={{ fontSize: 16 }} />
-          </IconButton>
-        </Tooltip>
+        <HoverCountActionSlot
+          count={section.itemCount}
+          isDark={isDark}
+          icon={<AddRoundedIcon sx={{ fontSize: 16 }} />}
+          onClick={() => onAddItem(groupId)}
+          showZeroCount
+          actionLabel="在此分组新建待办"
+        />
         {section.group && (
           <IconButton
             size="small"
@@ -2764,10 +2984,9 @@ function TodoGroupSection({
       {!collapsed && !isGroupDragActive && (
         <Box
           sx={{
-            ml: section.group ? 3.25 : 0,
-            pl: section.group ? 1 : 0,
-            borderLeft: section.group ? 1 : 0,
-            borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.12),
+            ml: section.group ? 1.5 : 0,
+            pl: section.group ? 0.5 : 0,
+            borderLeft: 0,
           }}
         >
           {section.items.length === 0 ? (
@@ -2785,6 +3004,7 @@ function TodoGroupSection({
                 draggable
                 sortableDroppable={isTodoDragActive}
                 deferOffscreenRendering={deferOffscreenRows}
+                hideSortableDragSource={hideTodoDragSource}
                 depth={getDepth(item)}
                 showNotePreview={showNotePreview}
                 hasChildren={visibleChildParentIds.has(item.id)}

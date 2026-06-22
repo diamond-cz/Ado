@@ -17,7 +17,6 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   Box,
   Chip,
@@ -82,6 +81,8 @@ interface Props {
   flushOuterSpacing?: boolean;
   dragHandleProps?: HTMLAttributes<HTMLDivElement>;
   deferOffscreenRendering?: boolean;
+  forceDragHandleVisible?: boolean;
+  hideSortableDragSource?: boolean;
   sortableDroppable?: boolean;
   virtualIndex?: number;
   measureRef?: (node: HTMLDivElement | null) => void;
@@ -89,6 +90,7 @@ interface Props {
   contextTooltip?: string;
   contextTooltipMode?: "mui" | "native" | "none";
   contextPath?: TodoItemContextPathPart[];
+  contextDisplay?: "line" | "inline";
   onOpenContextPath?: (target: TodoItemContextTarget) => void;
 }
 
@@ -119,12 +121,15 @@ function TodoItemBase({
   flushOuterSpacing = false,
   dragHandleProps,
   deferOffscreenRendering = false,
+  forceDragHandleVisible = false,
+  hideSortableDragSource = false,
   virtualIndex,
   measureRef,
   contextMeta,
   contextTooltip,
   contextTooltipMode = "mui",
   contextPath,
+  contextDisplay = "line",
   onOpenContextPath,
   sortable,
 }: TodoItemBaseProps) {
@@ -160,12 +165,14 @@ function TodoItemBase({
   const dragTransform = sortable?.transform
     ? `translate3d(${sortable.transform.x}px, ${sortable.transform.y}px, 0)`
     : undefined;
+  const isSortableDragging = Boolean(sortable?.isDragging);
   const style: CSSProperties = {
     transform: dragTransform,
-    transition: sortable?.isDragging ? undefined : sortable?.transition,
-    opacity: sortable?.isDragging ? 0.78 : 1,
-    zIndex: sortable?.isDragging ? 2 : undefined,
-    willChange: sortable?.isDragging ? "transform" : undefined,
+    transition: isSortableDragging ? undefined : sortable?.transition,
+    opacity: isSortableDragging ? (hideSortableDragSource ? 0 : 0.78) : 1,
+    zIndex: isSortableDragging ? 2 : undefined,
+    willChange: isSortableDragging ? "transform" : undefined,
+    pointerEvents: isSortableDragging && hideSortableDragSource ? "none" : undefined,
   };
 
   const [editing, setEditing] = useState(false);
@@ -184,11 +191,6 @@ function TodoItemBase({
     startX: 0,
     startY: 0,
   });
-  const [calendarDragOverlay, setCalendarDragOverlay] = useState<{
-    x: number;
-    y: number;
-    overDropTarget: boolean;
-  } | null>(null);
 
   const focusEditInput = () => {
     const input = editInputRef.current;
@@ -282,7 +284,11 @@ function TodoItemBase({
 
       const activateDrag = (clientX: number, clientY: number) => {
         calendarDragStateRef.current.active = true;
-        beginTodoCalendarDrag(item.id, clientX, clientY);
+        const sourceRect = sourceElement.getBoundingClientRect();
+        beginTodoCalendarDrag(item.id, clientX, clientY, {
+          sourceWidth: sourceRect.width,
+          sourceHeight: sourceRect.height,
+        });
         setSelectedItemId(item.id);
         document.body.style.cursor = "grabbing";
         document.body.style.userSelect = "none";
@@ -298,12 +304,7 @@ function TodoItemBase({
           activateDrag(moveEvent.clientX, moveEvent.clientY);
         }
 
-        const overDropTarget = updateTodoCalendarDrag(moveEvent.clientX, moveEvent.clientY);
-        setCalendarDragOverlay({
-          x: moveEvent.clientX,
-          y: moveEvent.clientY,
-          overDropTarget,
-        });
+        updateTodoCalendarDrag(moveEvent.clientX, moveEvent.clientY);
         moveEvent.preventDefault();
       };
 
@@ -315,7 +316,6 @@ function TodoItemBase({
           finishTodoCalendarDrag(upEvent.clientX, upEvent.clientY);
           calendarDragStateRef.current.active = false;
           calendarDragStateRef.current.endedAt = Date.now();
-          setCalendarDragOverlay(null);
           upEvent.preventDefault();
           upEvent.stopPropagation();
         }
@@ -327,7 +327,6 @@ function TodoItemBase({
         clearTodoCalendarDrag();
         calendarDragStateRef.current.active = false;
         calendarDragStateRef.current.endedAt = Date.now();
-        setCalendarDragOverlay(null);
       };
 
       window.addEventListener("pointermove", onPointerMove, { passive: false });
@@ -456,6 +455,11 @@ function TodoItemBase({
     contextPath && contextPath.length > 0
       ? contextTooltip ?? contextPath.map((part) => part.label).join(" / ")
       : "";
+  const inlineContextPart =
+    contextDisplay === "inline" && contextPath && contextPath.length > 0
+      ? [...contextPath].reverse().find((part) => part.target != null) ??
+        contextPath[contextPath.length - 1]
+      : null;
   const renderContextPathLine = () => (
     <Box
       title={contextTooltipMode === "native" ? contextPathTitle : undefined}
@@ -527,6 +531,67 @@ function TodoItemBase({
       })}
     </Box>
   );
+  const renderInlineContextAction = () => {
+    if (!inlineContextPart) return null;
+
+    const clickable = inlineContextPart.target != null && onOpenContextPath != null;
+    const content = (
+      <Box
+        component={clickable ? "button" : "span"}
+        type={clickable ? "button" : undefined}
+        title={contextTooltipMode === "native" ? contextPathTitle : undefined}
+        onPointerDown={(event: PointerEvent<HTMLElement>) => event.stopPropagation()}
+        onClick={
+          clickable
+            ? (event: MouseEvent<HTMLElement>) => {
+                event.stopPropagation();
+                onOpenContextPath(inlineContextPart.target!);
+              }
+            : undefined
+        }
+        sx={{
+          height: compactMeta ? 20 : 22,
+          minWidth: 0,
+          maxWidth: compactMeta ? 72 : 110,
+          flexShrink: 0,
+          ml: compactMeta ? 0.35 : 0.6,
+          px: 0,
+          border: 0,
+          bgcolor: "transparent",
+          color: "text.disabled",
+          font: "inherit",
+          cursor: clickable ? "pointer" : "default",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 0.1,
+          overflow: "hidden",
+          whiteSpace: "nowrap",
+          "&:hover": clickable ? { color: "primary.main" } : undefined,
+        }}
+      >
+        <Typography
+          component="span"
+          sx={{
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontSize: 11,
+            lineHeight: 1,
+            color: "inherit",
+          }}
+        >
+          {inlineContextPart.label}
+        </Typography>
+      </Box>
+    );
+
+    return contextTooltipMode === "mui" ? (
+      <Tooltip title={contextPathTitle}>{content}</Tooltip>
+    ) : (
+      content
+    );
+  };
 
   const todayInlineDuePatch = (): Partial<Omit<TodoItemT, "id" | "createdAt">> | null => {
     if (selectedFilter.kind !== "today") return null;
@@ -636,8 +701,8 @@ function TodoItemBase({
             color: "text.disabled",
             cursor: "grab",
             touchAction: "none",
-            opacity: 0,
-            transform: "scale(0.86)",
+            opacity: forceDragHandleVisible ? 1 : 0,
+            transform: forceDragHandleVisible ? "scale(1)" : "scale(0.86)",
             pointerEvents: "none",
             transition: "opacity 120ms ease, transform 120ms ease",
             ":active": { cursor: "grabbing" },
@@ -648,27 +713,27 @@ function TodoItemBase({
       )}
       {!compactMeta && (
         <Tooltip
-          title={
-            hasChildren ? (collapsed ? "展开子待办" : "折叠子待办") : "无子待办"
-          }
+          title={hasChildren ? (collapsed ? "展开子待办" : "折叠子待办") : ""}
         >
           <IconButton
             size="small"
-            aria-label={
-              hasChildren ? (collapsed ? "展开子待办" : "折叠子待办") : "无子待办"
-            }
+            aria-hidden={!hasChildren}
+            aria-label={hasChildren ? (collapsed ? "展开子待办" : "折叠子待办") : undefined}
             aria-expanded={hasChildren ? !collapsed : undefined}
+            tabIndex={hasChildren ? 0 : -1}
             onClick={(e) => {
               e.stopPropagation();
-              if (hasChildren) onToggleCollapsed?.(item.id);
+              if (!hasChildren) return;
+              onToggleCollapsed?.(item.id);
             }}
             sx={{
               width: 18,
               height: 20,
               p: 0,
               color: "text.secondary",
-              opacity: hasChildren ? 1 : 0.45,
               flexShrink: 0,
+              visibility: hasChildren ? "visible" : "hidden",
+              pointerEvents: hasChildren ? "auto" : "none",
             }}
           >
             {hasChildren && !collapsed ? (
@@ -799,7 +864,7 @@ function TodoItemBase({
           >
             {item.content}
           </Typography>
-          {!trashMode && contextPath && contextPath.length > 0 ? (
+          {!trashMode && contextDisplay !== "inline" && contextPath && contextPath.length > 0 ? (
             contextTooltipMode === "mui" ? (
               <Tooltip title={contextPathTitle}>{renderContextPathLine()}</Tooltip>
             ) : (
@@ -871,6 +936,7 @@ function TodoItemBase({
           )}
         </Box>
       )}
+      {!trashMode && !compactMeta && renderInlineContextAction()}
       {!trashMode && item.dueAt != null && (
         <Tooltip title={dueTooltipTitle}>
           <Box
@@ -998,40 +1064,6 @@ function TodoItemBase({
           onClose={() => setTagPos(null)}
         />
       )}
-      {calendarDragOverlay &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <Box
-            sx={{
-              position: "fixed",
-              left: calendarDragOverlay.x + 14,
-              top: calendarDragOverlay.y + 14,
-              zIndex: 9999,
-              maxWidth: 260,
-              px: 1,
-              py: 0.65,
-              borderRadius: 1,
-              border: 1,
-              borderColor: calendarDragOverlay.overDropTarget
-                ? "primary.main"
-                : alpha(isDark ? "#f8fafc" : "#0f172a", 0.18),
-              bgcolor: isDark ? alpha("#020617", 0.92) : alpha("#ffffff", 0.96),
-              color: "text.primary",
-              boxShadow: 6,
-              fontSize: 12,
-              fontWeight: 700,
-              lineHeight: 1.3,
-              pointerEvents: "none",
-              userSelect: "none",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "clip",
-            }}
-          >
-            {item.content.trim() || "未命名待办"}
-          </Box>,
-          document.body,
-        )}
     </Box>
   );
 }

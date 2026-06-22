@@ -12,6 +12,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Box,
   Button,
@@ -51,11 +52,11 @@ import {
   DragOverlay,
   PointerSensor,
   closestCenter,
-  pointerWithin,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
+  type Collision,
   type CollisionDetection,
   type DragEndEvent,
   type DragMoveEvent,
@@ -69,18 +70,24 @@ import {
   collectAllTags,
   isInboxList,
   midpointOrder,
+  randomTodoFolderEmoji,
 } from "./useTodoStore";
 import type { SavedTodoFilter, TodoFolder, TodoList } from "./types";
 import { ListContextMenu } from "./ListContextMenu";
 import { ListEditDialog } from "./ListEditDialog";
 import { TodoEmoji } from "./TodoEmoji";
 import { registerTodoCalendarDropTarget } from "./todoCalendarDrag";
+import {
+  CountBadge,
+  HoverCountActionSlot,
+  hoverCountActionParentSx,
+} from "./TodoHoverActionSlot";
 
 const ROW_HEIGHT = 36;
 const SIDEBAR_TRAILING_SLOT_WIDTH = 15;
-const SIDEBAR_TRAILING_ACTION_WIDTH = 18;
-const DEFAULT_DROP_ZONE_HEIGHT = 8;
+const DEFAULT_DROP_ZONE_HEIGHT = 18;
 const ROOT_EDGE_DROP_ZONE_HEIGHT = 22;
+const FIRST_ROOT_ITEM_ROOT_START_RATIO = 0.8;
 const NEW_FOLDER_NAME = "新文件夹";
 const NEW_FOLDER_EMOJI = "📁";
 
@@ -115,6 +122,19 @@ type SidebarDropData =
   | { type: "folder-start"; folderId: string }
   | { type: "folder-list-row"; folderId: string; targetListId: string }
   | { type: "folder-end"; folderId: string };
+
+interface SidebarCollisionData {
+  droppableContainer: unknown;
+  value: number;
+  pointerRatio?: number;
+  sidebarDropPriority?: number;
+}
+
+interface SidebarRootCollisionRow {
+  container: Parameters<CollisionDetection>[0]["droppableContainers"][number];
+  rect: { top: number; right: number; bottom: number; left: number; height: number };
+  data: Extract<SidebarDropData, { type: "root-row" }>;
+}
 
 function compareSidebarEntries(a: SidebarRootEntry, b: SidebarRootEntry): number {
   const orderDelta = a.order - b.order;
@@ -162,18 +182,192 @@ function sameDropTarget(a: SidebarDropTarget | null, b: SidebarDropTarget): bool
   }
 }
 
+function isSidebarEdgeDropData(data: SidebarDropData | undefined): boolean {
+  return (
+    data?.type === "root-start" ||
+    data?.type === "root-end" ||
+    data?.type === "folder-start" ||
+    data?.type === "folder-end"
+  );
+}
+
+function pointWithinRect(
+  point: { x: number; y: number },
+  rect: { top: number; right: number; bottom: number; left: number },
+): boolean {
+  return (
+    point.x >= rect.left &&
+    point.x <= rect.right &&
+    point.y >= rect.top &&
+    point.y <= rect.bottom
+  );
+}
+
+function pointerDistanceToRectCorners(
+  point: { x: number; y: number },
+  rect: { top: number; right: number; bottom: number; left: number },
+): number {
+  const corners = [
+    { x: rect.left, y: rect.top },
+    { x: rect.right, y: rect.top },
+    { x: rect.left, y: rect.bottom },
+    { x: rect.right, y: rect.bottom },
+  ];
+  return corners.reduce(
+    (sum, corner) => sum + Math.hypot(point.x - corner.x, point.y - corner.y),
+    0,
+  );
+}
+
+function sidebarPointerCollisionDetection(
+  args: Parameters<CollisionDetection>[0],
+): Collision[] {
+  const pointer = args.pointerCoordinates;
+  if (!pointer) return [];
+
+  let rootStartContainer: Parameters<CollisionDetection>[0]["droppableContainers"][number] | null =
+    null;
+  let rootEndContainer: Parameters<CollisionDetection>[0]["droppableContainers"][number] | null =
+    null;
+  let rootContentTop = Number.POSITIVE_INFINITY;
+  let rootContentBottom = Number.NEGATIVE_INFINITY;
+  let rootContentLeft = Number.POSITIVE_INFINITY;
+  let rootContentRight = Number.NEGATIVE_INFINITY;
+  let firstRootRow: SidebarRootCollisionRow | null = null;
+
+  for (const container of args.droppableContainers) {
+    const rect = args.droppableRects.get(container.id);
+    const dropData = container.data.current as SidebarDropData | undefined;
+    if (dropData?.type === "root-start") rootStartContainer = container;
+    if (dropData?.type === "root-end") rootEndContainer = container;
+    if (
+      rect &&
+      (dropData?.type === "root-row" || dropData?.type === "folder-list-row")
+    ) {
+      rootContentTop = Math.min(rootContentTop, rect.top);
+      rootContentBottom = Math.max(rootContentBottom, rect.bottom);
+      rootContentLeft = Math.min(rootContentLeft, rect.left);
+      rootContentRight = Math.max(rootContentRight, rect.right);
+    }
+    if (rect && dropData?.type === "root-row") {
+      const row = { container, rect, data: dropData };
+      if (!firstRootRow || rect.top < firstRootRow.rect.top) {
+        firstRootRow = row;
+      }
+    }
+  }
+
+  const hasRootContent = Number.isFinite(rootContentTop);
+  const withinRootContentX =
+    hasRootContent &&
+    pointer.x >= rootContentLeft - 24 &&
+    pointer.x <= rootContentRight + 24;
+  const activeDragItem = args.active.data.current as SidebarDragItem | undefined;
+  if (withinRootContentX && rootStartContainer && pointer.y < rootContentTop) {
+    return [
+      {
+        id: rootStartContainer.id,
+        data: {
+          droppableContainer: rootStartContainer,
+          value: 0,
+          sidebarDropPriority: -1,
+        } satisfies SidebarCollisionData,
+      },
+    ];
+  }
+  if (withinRootContentX && rootEndContainer && pointer.y > rootContentBottom) {
+    return [
+      {
+        id: rootEndContainer.id,
+        data: {
+          droppableContainer: rootEndContainer,
+          value: 0,
+          sidebarDropPriority: -1,
+        } satisfies SidebarCollisionData,
+      },
+    ];
+  }
+  if (
+    withinRootContentX &&
+    rootStartContainer &&
+    firstRootRow != null &&
+    (firstRootRow.data.targetKind === "folder" ||
+      (firstRootRow.data.targetKind === "list" && activeDragItem?.kind === "folder")) &&
+    pointWithinRect(pointer, firstRootRow.rect) &&
+    pointer.y <=
+      firstRootRow.rect.top + firstRootRow.rect.height * FIRST_ROOT_ITEM_ROOT_START_RATIO
+  ) {
+    return [
+      {
+        id: rootStartContainer.id,
+        data: {
+          droppableContainer: rootStartContainer,
+          value: 0,
+          pointerRatio: 0,
+          sidebarDropPriority: -1,
+        } satisfies SidebarCollisionData,
+      },
+    ];
+  }
+
+  const collisions: Collision[] = [];
+  for (const container of args.droppableContainers) {
+    const rect = args.droppableRects.get(container.id);
+    if (!rect || !pointWithinRect(pointer, rect)) continue;
+
+    const dropData = container.data.current as SidebarDropData | undefined;
+    const priority = isSidebarEdgeDropData(dropData) ? 0 : 1;
+    const pointerRatio =
+      rect.height > 0 ? (pointer.y - rect.top) / rect.height : undefined;
+    collisions.push({
+      id: container.id,
+      data: {
+        droppableContainer: container,
+        value: pointerDistanceToRectCorners(pointer, rect),
+        pointerRatio,
+        sidebarDropPriority: priority,
+      } satisfies SidebarCollisionData,
+    });
+  }
+
+  return collisions.sort((a, b) => {
+    const dataA = a.data as SidebarCollisionData | undefined;
+    const dataB = b.data as SidebarCollisionData | undefined;
+    const priorityDelta =
+      (dataA?.sidebarDropPriority ?? 1) - (dataB?.sidebarDropPriority ?? 1);
+    if (priorityDelta !== 0) return priorityDelta;
+    return (dataA?.value ?? 0) - (dataB?.value ?? 0);
+  });
+}
+
+function collisionPointerRatioFromDndEvent(
+  event: DragMoveEvent | DragOverEvent | DragEndEvent,
+): number | null {
+  const overId = event.over?.id;
+  if (overId == null) return null;
+  const collision = event.collisions?.find((entry) => entry.id === overId);
+  const data = collision?.data as SidebarCollisionData | undefined;
+  return typeof data?.pointerRatio === "number" ? data.pointerRatio : null;
+}
+
 function dropIntentFromDndEvent(
   event: DragMoveEvent | DragOverEvent | DragEndEvent,
   allowInside: boolean,
 ): DropRowState {
   const over = event.over;
   if (!over) return "after";
-  const activeRect = event.active.rect.current.translated ?? event.active.rect.current.initial;
-  const activeCenterY = activeRect
-    ? activeRect.top + activeRect.height / 2
-    : over.rect.top + over.rect.height / 2;
   const ratio =
-    over.rect.height > 0 ? (activeCenterY - over.rect.top) / over.rect.height : 0.5;
+    collisionPointerRatioFromDndEvent(event) ??
+    (() => {
+      const activeRect =
+        event.active.rect.current.translated ?? event.active.rect.current.initial;
+      const activeCenterY = activeRect
+        ? activeRect.top + activeRect.height / 2
+        : over.rect.top + over.rect.height / 2;
+      return over.rect.height > 0
+        ? (activeCenterY - over.rect.top) / over.rect.height
+        : 0.5;
+    })();
   if (allowInside && ratio >= 0.35 && ratio <= 0.65) return "inside";
   return ratio < 0.5 ? "before" : "after";
 }
@@ -235,6 +429,10 @@ export function TodoSidebar({ isDark }: SidebarProps) {
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const folderAutoOpenTimerRef = useRef<{
+    folderId: string;
+    timerId: number;
+  } | null>(null);
   // Right-click menu state.
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(
     null,
@@ -269,13 +467,14 @@ export function TodoSidebar({ isDark }: SidebarProps) {
     sourceListId: string;
     targetListId: string;
   } | null>(null);
+  const [mergeFolderEmoji, setMergeFolderEmoji] = useState(NEW_FOLDER_EMOJI);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 4 },
     }),
   );
   const sidebarCollisionDetection = useCallback<CollisionDetection>((args) => {
-    const pointerCollisions = pointerWithin(args);
+    const pointerCollisions = sidebarPointerCollisionDetection(args);
     return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
   }, []);
 
@@ -286,6 +485,10 @@ export function TodoSidebar({ isDark }: SidebarProps) {
       archivedLists: sorted.filter((list) => list.archivedAt != null && !isInboxList(list)),
     };
   }, [lists]);
+  const inboxList = useMemo(
+    () => lists.find((list) => list.archivedAt == null && isInboxList(list)) ?? null,
+    [lists],
+  );
   const activeFolders = useMemo(
     () => [...folders].sort((a, b) => a.order - b.order),
     [folders],
@@ -398,11 +601,11 @@ export function TodoSidebar({ isDark }: SidebarProps) {
       return false;
     }
 
-    if (item.listId !== listId) {
+    const movedToDifferentList = item.listId !== listId;
+    if (movedToDifferentList) {
       store.moveItem(itemId, listId);
     }
-    store.setSelectedFilter({ kind: "list", id: listId });
-    store.setSelectedItemId(itemId);
+    store.setSelectedItemId(movedToDifferentList ? null : itemId);
     return true;
   }, []);
 
@@ -559,19 +762,57 @@ export function TodoSidebar({ isDark }: SidebarProps) {
     );
   };
 
-  const setFolderOpen = (folderId: string) => {
+  const setFolderOpen = useCallback((folderId: string) => {
     setCollapsedFolderIds((current) => {
       if (!current.has(folderId)) return current;
       const next = new Set(current);
       next.delete(folderId);
       return next;
     });
-  };
+  }, []);
+
+  const clearFolderAutoOpenTimer = useCallback(() => {
+    const current = folderAutoOpenTimerRef.current;
+    if (!current) return;
+    window.clearTimeout(current.timerId);
+    folderAutoOpenTimerRef.current = null;
+  }, []);
+
+  const scheduleFolderAutoOpen = useCallback(
+    (folderId: string) => {
+      if (!collapsedFolderIds.has(folderId)) {
+        clearFolderAutoOpenTimer();
+        return;
+      }
+      if (folderAutoOpenTimerRef.current?.folderId === folderId) return;
+
+      clearFolderAutoOpenTimer();
+      const timerId = window.setTimeout(() => {
+        setFolderOpen(folderId);
+        if (folderAutoOpenTimerRef.current?.folderId === folderId) {
+          folderAutoOpenTimerRef.current = null;
+        }
+      }, 450);
+      folderAutoOpenTimerRef.current = { folderId, timerId };
+    },
+    [clearFolderAutoOpenTimer, collapsedFolderIds, setFolderOpen],
+  );
+
+  const handleFolderTodoDragOverChange = useCallback(
+    (folderId: string, isOver: boolean) => {
+      if (isOver) scheduleFolderAutoOpen(folderId);
+      else clearFolderAutoOpenTimer();
+    },
+    [clearFolderAutoOpenTimer, scheduleFolderAutoOpen],
+  );
+
+  useEffect(() => clearFolderAutoOpenTimer, [clearFolderAutoOpenTimer]);
 
   const applyDrop = (dragged: SidebarDragItem, target: SidebarDropTarget) => {
     if (target.type === "merge-lists") {
       if (dragged.kind !== "list" || dragged.id === target.targetListId) return;
       if (!canMergeRootLists(dragged.id, target.targetListId)) return;
+      setMergeFolderEmoji(randomTodoFolderEmoji());
       setMergeListsTarget({
         sourceListId: dragged.id,
         targetListId: target.targetListId,
@@ -650,6 +891,34 @@ export function TodoSidebar({ isDark }: SidebarProps) {
         if (dragged.kind === data.targetKind && dragged.id === data.targetId) {
           return null;
         }
+        const pointerRatio = collisionPointerRatioFromDndEvent(event);
+        if (
+          dragged.kind === "list" &&
+          data.targetKind === "folder" &&
+          rootEntries[0]?.kind === "folder" &&
+          rootEntries[0].id === data.targetId &&
+          pointerRatio != null
+        ) {
+          return pointerRatio <= FIRST_ROOT_ITEM_ROOT_START_RATIO
+            ? { type: "root-start" }
+            : { type: "folder-start", folderId: data.targetId };
+        }
+        if (
+          dragged.kind === "folder" &&
+          data.targetKind === "list" &&
+          rootEntries[0]?.kind === "list" &&
+          rootEntries[0].id === data.targetId &&
+          pointerRatio != null
+        ) {
+          return pointerRatio <= FIRST_ROOT_ITEM_ROOT_START_RATIO
+            ? { type: "root-start" }
+            : {
+                type: "root-order",
+                targetKind: "list",
+                targetId: data.targetId,
+                edge: "after",
+              };
+        }
         const intent = dropIntentFromDndEvent(event, dragged.kind === "list");
         if (dragged.kind === "list" && intent === "inside") {
           if (data.targetKind === "folder") {
@@ -668,6 +937,16 @@ export function TodoSidebar({ isDark }: SidebarProps) {
         };
       }
       case "folder-list-row": {
+        if (dragged.kind === "folder") {
+          return dragged.id === data.folderId
+            ? null
+            : {
+                type: "root-order",
+                targetKind: "folder",
+                targetId: data.folderId,
+                edge: "after",
+              };
+        }
         if (dragged.kind !== "list" || dragged.id === data.targetListId) {
           return null;
         }
@@ -700,6 +979,14 @@ export function TodoSidebar({ isDark }: SidebarProps) {
   };
 
   const handleDndOver = (event: DragOverEvent) => {
+    const item = (event.active.data.current as SidebarDragItem | undefined) ?? dragItem;
+    if (!item) return;
+    const target = dropTargetFromDndEvent(item, event);
+    if (target) updateDropTarget(target);
+    else clearDropTarget();
+  };
+
+  const handleDndMove = (event: DragMoveEvent) => {
     const item = (event.active.data.current as SidebarDragItem | undefined) ?? dragItem;
     if (!item) return;
     const target = dropTargetFromDndEvent(item, event);
@@ -790,7 +1077,7 @@ export function TodoSidebar({ isDark }: SidebarProps) {
 
     const folder = addFolder({
       name: patch.name?.trim() || NEW_FOLDER_NAME,
-      emoji: patch.emoji || NEW_FOLDER_EMOJI,
+      emoji: patch.emoji || mergeFolderEmoji,
       order: target.order,
     });
     const orderedLists = [source, target].sort((a, b) => a.order - b.order);
@@ -828,6 +1115,8 @@ export function TodoSidebar({ isDark }: SidebarProps) {
           count={inboxCount}
           active={selectedFilter.kind === "inbox"}
           onClick={() => setSelectedFilter({ kind: "inbox" })}
+          onTodoDrop={dropTodoOnList}
+          todoDropListId={inboxList?.id ?? null}
           isDark={isDark}
         />
         <Box
@@ -954,6 +1243,7 @@ export function TodoSidebar({ isDark }: SidebarProps) {
           sensors={sensors}
           collisionDetection={sidebarCollisionDetection}
           onDragStart={handleDndStart}
+          onDragMove={handleDndMove}
           onDragOver={handleDndOver}
           onDragCancel={clearDragState}
           onDragEnd={handleDndEnd}
@@ -998,6 +1288,7 @@ export function TodoSidebar({ isDark }: SidebarProps) {
                     onActionMenu={(e) => onListActionMenu(e, list)}
                     onTodoDrop={dropTodoOnList}
                     isDark={isDark}
+                    disableHover={dragItem != null}
                     dragData={{ kind: "list", id: list.id }}
                     dropData={{
                       type: "root-row",
@@ -1053,7 +1344,9 @@ export function TodoSidebar({ isDark }: SidebarProps) {
                     onClick={() => setSelectedFilter({ kind: "folder", id: folder.id })}
                     onCreateList={() => startCreateList(folder.id)}
                     onContextMenu={(e) => onFolderContextMenu(e, folder)}
+                    onTodoDragOverChange={handleFolderTodoDragOverChange}
                     isDark={isDark}
+                    disableHover={dragItem != null}
                     dragData={{ kind: "folder", id: folder.id }}
                     dropData={{
                       type: "root-row",
@@ -1126,6 +1419,7 @@ export function TodoSidebar({ isDark }: SidebarProps) {
                             onActionMenu={(e) => onListActionMenu(e, list)}
                             onTodoDrop={dropTodoOnList}
                             isDark={isDark}
+                            disableHover={dragItem != null}
                             indent
                             dragData={{ kind: "list", id: list.id }}
                             dropData={{
@@ -1170,18 +1464,22 @@ export function TodoSidebar({ isDark }: SidebarProps) {
             height={ROOT_EDGE_DROP_ZONE_HEIGHT}
           />
           </Box>
-          <DragOverlay dropAnimation={null}>
-            <SidebarDragPreview
-              item={dragItem}
-              folders={activeFolders}
-              lists={activeLists}
-              defaultListId={defaultListId}
-              listCount={listPendingCount}
-              folderCount={folderPendingCount}
-              isDark={isDark}
-              width={dragOverlayWidth}
-            />
-          </DragOverlay>
+          {typeof document !== "undefined" &&
+            createPortal(
+              <DragOverlay dropAnimation={null}>
+                <SidebarDragPreview
+                  item={dragItem}
+                  folders={activeFolders}
+                  lists={activeLists}
+                  defaultListId={defaultListId}
+                  listCount={listPendingCount}
+                  folderCount={folderPendingCount}
+                  isDark={isDark}
+                  width={dragOverlayWidth}
+                />
+              </DragOverlay>,
+              document.body,
+            )}
         </DndContext>
         <Box sx={{ mt: 2, mb: 0.5, px: 1.5 }}>
           <Typography
@@ -1610,9 +1908,9 @@ export function TodoSidebar({ isDark }: SidebarProps) {
       )}
       {mergeListsTarget && (
         <ListEditDialog
-          list={{ name: NEW_FOLDER_NAME, emoji: NEW_FOLDER_EMOJI }}
+          list={{ name: NEW_FOLDER_NAME, emoji: mergeFolderEmoji }}
           title="新建文件夹"
-          defaultEmoji={NEW_FOLDER_EMOJI}
+          defaultEmoji={mergeFolderEmoji}
           onClose={() => setMergeListsTarget(null)}
           onSubmit={submitMergeFolder}
         />
@@ -1628,6 +1926,8 @@ interface FixedRowProps {
   active: boolean;
   onClick: () => void;
   onContextMenu?: (e: MouseEvent) => void;
+  onTodoDrop?: (itemId: string, listId: string) => boolean;
+  todoDropListId?: string | null;
   trailing?: React.ReactNode;
   isDark: boolean;
 }
@@ -1639,11 +1939,35 @@ function SidebarFixedRow({
   active,
   onClick,
   onContextMenu,
+  onTodoDrop,
+  todoDropListId = null,
   trailing,
   isDark,
 }: FixedRowProps) {
+  const rowRef = useRef<HTMLElement | null>(null);
+  const [todoDropOver, setTodoDropOver] = useState(false);
+
+  useEffect(() => {
+    if (!onTodoDrop || !todoDropListId) return undefined;
+    return registerTodoCalendarDropTarget({
+      containsPoint: (clientX, clientY) => {
+        const rect = rowRef.current?.getBoundingClientRect();
+        return (
+          rect != null &&
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        );
+      },
+      drop: (itemId) => onTodoDrop(itemId, todoDropListId),
+      onDragOverChange: setTodoDropOver,
+    });
+  }, [onTodoDrop, todoDropListId]);
+
   return (
     <Box
+      ref={rowRef}
       onClick={onClick}
       onContextMenu={onContextMenu}
       sx={{
@@ -1657,21 +1981,17 @@ function SidebarFixedRow({
         gap: 1,
         borderRadius: 1,
         cursor: "pointer",
+        outline: todoDropOver ? 1 : 0,
+        outlineColor: "primary.main",
         bgcolor: active
           ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.08)
+          : todoDropOver
+            ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.06)
           : "transparent",
         ":hover": {
           bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.06),
         },
-        "&:hover .todo-sidebar-hover-count, &:focus-within .todo-sidebar-hover-count": {
-          opacity: 0,
-          transform: "scale(0.84)",
-        },
-        "&:hover .todo-sidebar-hover-action, &:focus-within .todo-sidebar-hover-action": {
-          opacity: 1,
-          transform: "scale(1)",
-          pointerEvents: "auto",
-        },
+        ...hoverCountActionParentSx(),
       }}
     >
       <Box sx={{ display: "flex", color: "text.secondary" }}>{icon}</Box>
@@ -1704,63 +2024,7 @@ function HoverRowActionSlot({
   onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
-    <Box
-      sx={{
-        width: SIDEBAR_TRAILING_SLOT_WIDTH,
-        height: 24,
-        flexShrink: 0,
-        position: "relative",
-        display: "grid",
-        placeItems: "center",
-      }}
-    >
-      <Box
-        className="todo-sidebar-hover-count"
-        sx={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-end",
-          opacity: count > 0 ? 1 : 0,
-          transform: "scale(1)",
-          transition: "opacity 120ms ease, transform 120ms ease",
-          pointerEvents: "none",
-        }}
-      >
-        {count > 0 && <CountBadge count={count} isDark={isDark} />}
-      </Box>
-      <IconButton
-        className="todo-sidebar-hover-action"
-        size="small"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick(e);
-        }}
-        sx={{
-          position: "absolute",
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: SIDEBAR_TRAILING_ACTION_WIDTH,
-          height: 24,
-          p: 0,
-          my: "auto",
-          opacity: 0,
-          transform: "scale(0.84)",
-          pointerEvents: "none",
-          transition: "opacity 120ms ease, transform 120ms ease",
-          border: 0,
-          bgcolor: "transparent",
-          boxShadow: "none",
-          "&:hover": { bgcolor: "transparent", boxShadow: "none" },
-          "&:focus-visible": { outline: "none", boxShadow: "none" },
-        }}
-      >
-        {icon}
-      </IconButton>
-    </Box>
+    <HoverCountActionSlot count={count} isDark={isDark} icon={icon} onClick={onClick} />
   );
 }
 
@@ -1851,7 +2115,9 @@ interface FolderRowProps {
   onClick: () => void;
   onCreateList: () => void;
   onContextMenu: (e: MouseEvent) => void;
+  onTodoDragOverChange?: (folderId: string, isOver: boolean) => void;
   isDark: boolean;
+  disableHover?: boolean;
   dragData?: SidebarDragItem;
   dropData?: SidebarDropData;
   dropState?: DropRowState;
@@ -1866,7 +2132,9 @@ function SidebarFolderRow({
   onClick,
   onCreateList,
   onContextMenu,
+  onTodoDragOverChange,
   isDark,
+  disableHover = false,
   dragData,
   dropData,
   dropState,
@@ -1881,10 +2149,33 @@ function SidebarFolderRow({
     data: dropData,
     disabled: !dropData,
   });
+  const rowRef = useRef<HTMLElement | null>(null);
+  const [todoDropOver, setTodoDropOver] = useState(false);
   const setRowRef = (node: HTMLElement | null) => {
+    rowRef.current = node;
     draggable.setNodeRef(node);
     droppable.setNodeRef(node);
   };
+  useEffect(() => {
+    if (!onTodoDragOverChange) return undefined;
+    return registerTodoCalendarDropTarget({
+      containsPoint: (clientX, clientY) => {
+        const rect = rowRef.current?.getBoundingClientRect();
+        return (
+          rect != null &&
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        );
+      },
+      drop: () => false,
+      onDragOverChange: (isOver) => {
+        setTodoDropOver(isOver);
+        onTodoDragOverChange(folder.id, isOver);
+      },
+    });
+  }, [folder.id, onTodoDragOverChange]);
   const rowDragging = draggable.isDragging;
   const transform = !rowDragging && draggable.transform
     ? `translate3d(${draggable.transform.x}px, ${draggable.transform.y}px, 0)`
@@ -1914,29 +2205,27 @@ function SidebarFolderRow({
         overflow: "hidden",
         pointerEvents: rowDragging ? "none" : undefined,
         touchAction: "none",
-        outline: !rowDragging && dropState === "inside" ? 1 : 0,
+        outline: !rowDragging && (dropState === "inside" || todoDropOver) ? 1 : 0,
         outlineColor: "primary.main",
         bgcolor: rowDragging
           ? "transparent"
           : active
             ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.08)
-            : dropState === "inside"
+            : dropState === "inside" || todoDropOver
               ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.06)
             : "transparent",
         transition:
           "height 120ms ease, margin 120ms ease, opacity 120ms ease, background-color 120ms ease",
         ":hover": {
-          bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.06),
+          bgcolor: disableHover
+            ? active
+              ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.08)
+              : dropState === "inside" || todoDropOver
+                ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.06)
+                : "transparent"
+            : alpha(isDark ? "#f8fafc" : "#0f172a", 0.06),
         },
-        "&:hover .todo-sidebar-folder-count, &:focus-within .todo-sidebar-folder-count": {
-          opacity: 0,
-          transform: "scale(0.84)",
-        },
-        "&:hover .todo-sidebar-folder-add, &:focus-within .todo-sidebar-folder-add": {
-          opacity: 1,
-          transform: "scale(1)",
-          pointerEvents: "auto",
-        },
+        ...hoverCountActionParentSx(),
       }}
     >
       <IconButton
@@ -1984,62 +2273,13 @@ function FolderRowActionSlot({
   onCreateList: () => void;
 }) {
   return (
-    <Box
-      sx={{
-        width: SIDEBAR_TRAILING_SLOT_WIDTH,
-        height: 24,
-        flexShrink: 0,
-        position: "relative",
-        display: "grid",
-        placeItems: "center",
-      }}
-    >
-      <Box
-        className="todo-sidebar-folder-count"
-        sx={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-end",
-          opacity: count > 0 ? 1 : 0,
-          transform: "scale(1)",
-          transition: "opacity 120ms ease, transform 120ms ease",
-          pointerEvents: "none",
-        }}
-      >
-        {count > 0 && <CountBadge count={count} isDark={isDark} />}
-      </Box>
-      <IconButton
-        className="todo-sidebar-folder-add"
-        size="small"
-        onClick={(e) => {
-          e.stopPropagation();
-          onCreateList();
-        }}
-        sx={{
-          position: "absolute",
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: SIDEBAR_TRAILING_ACTION_WIDTH,
-          height: 24,
-          p: 0,
-          my: "auto",
-          opacity: 0,
-          transform: "scale(0.84)",
-          pointerEvents: "none",
-          transition: "opacity 120ms ease, transform 120ms ease",
-          border: 0,
-          bgcolor: "transparent",
-          boxShadow: "none",
-          "&:hover": { bgcolor: "transparent", boxShadow: "none" },
-          "&:focus-visible": { outline: "none", boxShadow: "none" },
-        }}
-      >
-        <AddRoundedIcon sx={{ fontSize: 15 }} />
-      </IconButton>
-    </Box>
+    <HoverCountActionSlot
+      count={count}
+      isDark={isDark}
+      icon={<AddRoundedIcon sx={{ fontSize: 15 }} />}
+      onClick={() => onCreateList()}
+      actionLabel="新建清单"
+    />
   );
 }
 
@@ -2053,6 +2293,7 @@ interface ListRowProps {
   onActionMenu: (e: MouseEvent<HTMLButtonElement>) => void;
   onTodoDrop?: (itemId: string, listId: string) => boolean;
   isDark: boolean;
+  disableHover?: boolean;
   archived?: boolean;
   indent?: boolean;
   dragData?: SidebarDragItem;
@@ -2070,6 +2311,7 @@ function SidebarListRow({
   onActionMenu,
   onTodoDrop,
   isDark,
+  disableHover = false,
   archived = false,
   indent = false,
   dragData,
@@ -2155,17 +2397,15 @@ function SidebarListRow({
         transition:
           "height 120ms ease, margin 120ms ease, opacity 120ms ease, background-color 120ms ease",
         ":hover": {
-          bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.06),
+          bgcolor: disableHover
+            ? active
+              ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.08)
+              : dropState === "inside" || todoDropOver
+                ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.06)
+                : "transparent"
+            : alpha(isDark ? "#f8fafc" : "#0f172a", 0.06),
         },
-        "&:hover .todo-sidebar-hover-count, &:focus-within .todo-sidebar-hover-count": {
-          opacity: 0,
-          transform: "scale(0.84)",
-        },
-        "&:hover .todo-sidebar-hover-action, &:focus-within .todo-sidebar-hover-action": {
-          opacity: 1,
-          transform: "scale(1)",
-          pointerEvents: "auto",
-        },
+        ...hoverCountActionParentSx(),
       }}
     >
       <Box sx={{ fontSize: 16, lineHeight: 1, width: 18, textAlign: "center" }}>
@@ -2394,31 +2634,6 @@ function SidebarCountSlot({ count, isDark }: { count: number; isDark: boolean })
       }}
     >
       <CountBadge count={count} isDark={isDark} />
-    </Box>
-  );
-}
-
-function CountBadge({ count, isDark }: { count: number; isDark: boolean }) {
-  return (
-    <Box
-      sx={{
-        minWidth: 18,
-        height: 20,
-        px: 0.2,
-        border: 0,
-        borderRadius: 0,
-        fontSize: 11,
-        fontWeight: 700,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        lineHeight: 1,
-        color: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.58 : 0.46),
-        bgcolor: "transparent",
-        boxShadow: "none",
-      }}
-    >
-      {count}
     </Box>
   );
 }

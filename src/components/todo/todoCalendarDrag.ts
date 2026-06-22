@@ -8,6 +8,8 @@ interface ActiveTodoCalendarDrag {
   itemId: string;
   clientX: number;
   clientY: number;
+  sourceWidth?: number;
+  sourceHeight?: number;
 }
 
 interface CompletedTodoExternalDrop {
@@ -15,10 +17,37 @@ interface CompletedTodoExternalDrop {
   at: number;
 }
 
+export type TodoCalendarDragSnapshot = ActiveTodoCalendarDrag;
+
+interface TodoCalendarDragOptions {
+  sourceWidth?: number;
+  sourceHeight?: number;
+}
+
 const dropTargets = new Set<TodoCalendarDropTarget>();
+const dragListeners = new Set<(snapshot: TodoCalendarDragSnapshot | null) => void>();
 let activeDrag: ActiveTodoCalendarDrag | null = null;
 let currentOverTarget: TodoCalendarDropTarget | null = null;
 let lastExternalDrop: CompletedTodoExternalDrop | null = null;
+
+function getTodoCalendarDragSnapshot(): TodoCalendarDragSnapshot | null {
+  return activeDrag ? { ...activeDrag } : null;
+}
+
+function emitTodoCalendarDragChange(): void {
+  const snapshot = getTodoCalendarDragSnapshot();
+  dragListeners.forEach((listener) => listener(snapshot));
+}
+
+export function subscribeTodoCalendarDrag(
+  listener: (snapshot: TodoCalendarDragSnapshot | null) => void,
+): () => void {
+  dragListeners.add(listener);
+  listener(getTodoCalendarDragSnapshot());
+  return () => {
+    dragListeners.delete(listener);
+  };
+}
 
 export function registerTodoCalendarDropTarget(
   target: TodoCalendarDropTarget,
@@ -37,8 +66,9 @@ export function beginTodoCalendarDrag(
   itemId: string,
   clientX: number,
   clientY: number,
+  options: TodoCalendarDragOptions = {},
 ): void {
-  activeDrag = { itemId, clientX, clientY };
+  activeDrag = { itemId, clientX, clientY, ...options };
   updateTodoCalendarDrag(clientX, clientY);
 }
 
@@ -57,6 +87,7 @@ export function updateTodoCalendarDrag(clientX: number, clientY: number): boolea
     currentOverTarget = nextTarget;
   }
 
+  emitTodoCalendarDragChange();
   return nextTarget != null;
 }
 
@@ -77,9 +108,13 @@ export function finishTodoCalendarDrag(clientX: number, clientY: number): boolea
 }
 
 export function clearTodoCalendarDrag(): void {
+  const hadActiveDrag = activeDrag != null;
   activeDrag = null;
   currentOverTarget?.onDragOverChange?.(false);
   currentOverTarget = null;
+  if (hadActiveDrag) {
+    emitTodoCalendarDragChange();
+  }
 }
 
 export function consumeLastTodoExternalDrop(itemId: string): boolean {

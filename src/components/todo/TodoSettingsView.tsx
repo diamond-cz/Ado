@@ -4,6 +4,7 @@ import {
   Button,
   IconButton,
   MenuItem,
+  Slider,
   Switch,
   TextField,
   Tooltip,
@@ -17,6 +18,7 @@ import CalendarTodayRoundedIcon from "@mui/icons-material/CalendarTodayRounded";
 import CheckBoxOutlineBlankRoundedIcon from "@mui/icons-material/CheckBoxOutlineBlankRounded";
 import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import CloseFullscreenRoundedIcon from "@mui/icons-material/CloseFullscreenRounded";
 import ColorLensRoundedIcon from "@mui/icons-material/ColorLensRounded";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
@@ -27,6 +29,8 @@ import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import KeyboardRoundedIcon from "@mui/icons-material/KeyboardRounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import ManageSearchRoundedIcon from "@mui/icons-material/ManageSearchRounded";
+import OpacityRoundedIcon from "@mui/icons-material/OpacityRounded";
+import PowerSettingsNewRoundedIcon from "@mui/icons-material/PowerSettingsNewRounded";
 import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import RedoRoundedIcon from "@mui/icons-material/RedoRounded";
@@ -36,6 +40,7 @@ import StorageRoundedIcon from "@mui/icons-material/StorageRounded";
 import SubdirectoryArrowRightRoundedIcon from "@mui/icons-material/SubdirectoryArrowRightRounded";
 import TextFieldsRoundedIcon from "@mui/icons-material/TextFieldsRounded";
 import UndoRoundedIcon from "@mui/icons-material/UndoRounded";
+import WidgetsRoundedIcon from "@mui/icons-material/WidgetsRounded";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 
@@ -54,6 +59,7 @@ import {
   useStore,
   type TodoIdleLightEffectMode,
   type ThemeMode,
+  type HotkeyId,
   type TodoShortcutId,
 } from "../../state/store";
 import { ShortcutInput } from "../ShortcutInput";
@@ -92,7 +98,14 @@ import {
 } from "./todoFonts";
 import { useTodoStore } from "./useTodoStore";
 
-type TodoSettingsCategory = "appearance" | "shortcuts" | "data" | "hours" | "display" | "timeZones";
+type TodoSettingsCategory =
+  | "appearance"
+  | "widget"
+  | "shortcuts"
+  | "data"
+  | "hours"
+  | "display"
+  | "timeZones";
 type TodoColorThemeEditorMode =
   | { kind: "new" }
   | { kind: "edit"; id: TodoColorThemeId }
@@ -104,6 +117,7 @@ const CATEGORY_ITEMS: {
   description: string;
 }[] = [
   { id: "appearance", label: "外观", description: "主题色、字体与动效" },
+  { id: "widget", label: "小组件", description: "桌面小组件与系统行为" },
   { id: "shortcuts", label: "快捷键", description: "自定义 Todo 操作" },
   { id: "data", label: "数据", description: "导入导出与数据库备份" },
   { id: "hours", label: "日历营业时间", description: "日视图与周视图时间范围" },
@@ -162,6 +176,12 @@ function backupSourceLabel(source: string): string {
 export function TodoSettingsView({ isDark }: { isDark: boolean }) {
   const theme = useTheme();
   const appSettings = useStore((s) => s.appSettings);
+  const autostart = useStore((s) => s.autostart);
+  const closeToTray = useStore((s) => s.closeToTray);
+  const hotkeys = useStore((s) => s.hotkeys);
+  const setAutostart = useStore((s) => s.setAutostart);
+  const setCloseToTray = useStore((s) => s.setCloseToTray);
+  const setHotkey = useStore((s) => s.setHotkey);
   const setTodoSettings = useStore((s) => s.setTodoSettings);
   const colorThemes = useMemo(
     () => mergeTodoColorThemes(appSettings.todoColorThemes),
@@ -219,6 +239,19 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
     const key = normalizeAccelerator(value);
     return Boolean(key && todoShortcutConflicts.has(key));
   };
+  const globalHotkeyConflicts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const value of Object.values(hotkeys)) {
+      const key = normalizeAccelerator(value);
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
+  }, [hotkeys]);
+  const hasGlobalHotkeyConflict = (value: string) => {
+    const key = normalizeAccelerator(value);
+    return Boolean(key && globalHotkeyConflicts.has(key));
+  };
   const setTodoShortcut = (id: TodoShortcutId, value: string) => {
     setTodoSettings({
       todoShortcuts: {
@@ -226,6 +259,9 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
         [id]: value,
       },
     });
+  };
+  const setGlobalHotkey = (id: HotkeyId, value: string) => {
+    setHotkey(id, value);
   };
 
   useEffect(() => {
@@ -667,6 +703,46 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
                 }
               />
             </SettingGroup>
+          )}
+
+          {activeCategory === "widget" && (
+            <>
+              <SettingGroup title="桌面小组件">
+                <ShortcutSettingRow
+                  icon={<WidgetsRoundedIcon sx={{ fontSize: 20, color: "#2563eb" }} />}
+                  title="显示/隐藏小组件"
+                  description="全局显示或隐藏 Todo 桌面小组件。"
+                  value={hotkeys.todoWidget}
+                  conflict={hasGlobalHotkeyConflict(hotkeys.todoWidget)}
+                  conflictMessage="与其他全局快捷键冲突，请更换"
+                  onChange={(value) => setGlobalHotkey("todoWidget", value)}
+                />
+                <OpacitySettingRow
+                  icon={<OpacityRoundedIcon sx={{ fontSize: 20, color: "#0ea5e9" }} />}
+                  title="背景透明度"
+                  description="控制桌面小组件背景的透明程度。"
+                  value={appSettings.todoWidgetBackgroundOpacity}
+                  onChange={(value) => setTodoSettings({ todoWidgetBackgroundOpacity: value })}
+                />
+              </SettingGroup>
+
+              <SettingGroup title="系统行为">
+                <SwitchSettingRow
+                  icon={<PowerSettingsNewRoundedIcon sx={{ fontSize: 20, color: "#f97316" }} />}
+                  title="开机自启动"
+                  description="随系统启动自动运行 AEBOX Hiviewer。"
+                  checked={autostart}
+                  onChange={setAutostart}
+                />
+                <SwitchSettingRow
+                  icon={<CloseFullscreenRoundedIcon sx={{ fontSize: 20, color: "#64748b" }} />}
+                  title="关闭时最小化到托盘"
+                  description="开启后点击关闭按钮会隐藏到系统托盘，关闭则直接退出应用。"
+                  checked={closeToTray}
+                  onChange={setCloseToTray}
+                />
+              </SettingGroup>
+            </>
           )}
 
           {activeCategory === "shortcuts" && (
@@ -1189,6 +1265,7 @@ function BackupTimeline({
 function CategoryIcon({ id, active }: { id: TodoSettingsCategory; active: boolean }) {
   const color = active ? "primary.main" : "text.secondary";
   if (id === "appearance") return <SettingsBrightnessRoundedIcon sx={{ fontSize: 20, color }} />;
+  if (id === "widget") return <WidgetsRoundedIcon sx={{ fontSize: 20, color }} />;
   if (id === "shortcuts") return <KeyboardRoundedIcon sx={{ fontSize: 20, color }} />;
   if (id === "data") return <CloudSyncRoundedIcon sx={{ fontSize: 20, color }} />;
   if (id === "hours") return <AccessTimeRoundedIcon sx={{ fontSize: 20, color }} />;
@@ -1961,6 +2038,7 @@ function ShortcutSettingRow({
   description,
   value,
   conflict,
+  conflictMessage = "与其他 Todo 快捷键冲突，请更换",
   allowSingleKey = false,
   onChange,
 }: {
@@ -1969,6 +2047,7 @@ function ShortcutSettingRow({
   description: string;
   value: string;
   conflict: boolean;
+  conflictMessage?: string;
   allowSingleKey?: boolean;
   onChange: (value: string) => void;
 }) {
@@ -1983,10 +2062,68 @@ function ShortcutSettingRow({
             value={value}
             placeholder="未设置"
             conflict={conflict}
-            conflictMessage="与其他 Todo 快捷键冲突，请更换"
+            conflictMessage={conflictMessage}
             allowSingleKey={allowSingleKey}
             onChange={onChange}
           />
+        </Box>
+      }
+    />
+  );
+}
+
+function OpacitySettingRow({
+  icon,
+  title,
+  description,
+  value,
+  onChange,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const clamped = Math.max(0.01, Math.min(1, value));
+  return (
+    <SettingRow
+      icon={icon}
+      title={title}
+      description={description}
+      control={
+        <Box
+          sx={{
+            width: "min(360px, 42vw)",
+            minWidth: 260,
+            display: "flex",
+            alignItems: "center",
+            gap: 1.6,
+            flexShrink: 0,
+          }}
+        >
+          <Slider
+            min={0.01}
+            max={1}
+            step={0.01}
+            value={clamped}
+            onChange={(_, next) => {
+              const raw = Array.isArray(next) ? next[0] : next;
+              onChange(Math.max(0.01, Math.min(1, raw)));
+            }}
+            sx={{ flex: 1 }}
+          />
+          <Typography
+            sx={{
+              width: 48,
+              textAlign: "right",
+              fontSize: 13,
+              fontWeight: 800,
+              color: "text.secondary",
+            }}
+          >
+            {clamped.toFixed(2)}
+          </Typography>
         </Box>
       }
     />

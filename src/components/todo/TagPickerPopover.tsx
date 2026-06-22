@@ -56,14 +56,26 @@ export function TagPickerPopover({ itemId, anchorEl, anchorPosition, onClose }: 
   return (
     <Popover
       open
+      container={document.body}
       onClose={onClose}
+      marginThreshold={8}
       {...(useAnchorEl
         ? { anchorEl, anchorOrigin: { vertical: "bottom", horizontal: "left" } as const }
         : {
             anchorReference: "anchorPosition" as const,
             anchorPosition: anchorPosition ?? { top: 0, left: 0 },
           })}
-      slotProps={{ paper: { sx: { width: 260, p: 1.2 } } }}
+      slotProps={{
+        paper: {
+          sx: {
+            width: 260,
+            maxHeight: "calc(100vh - 16px)",
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+            p: 1.2,
+          },
+        },
+      }}
     >
       <Typography sx={{ fontSize: 12, color: "text.secondary", mb: 0.6, px: 0.4 }}>
         标签

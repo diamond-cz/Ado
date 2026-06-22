@@ -134,12 +134,23 @@ export function DueDatePopover({
   return (
     <Popover
       open
+      container={document.body}
       anchorEl={anchorEl ?? undefined}
       anchorReference={usePosition ? "anchorPosition" : "anchorEl"}
       anchorPosition={anchorPosition}
       onClose={onClose}
       anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
       transformOrigin={{ vertical: "top", horizontal: "right" }}
+      marginThreshold={8}
+      slotProps={{
+        paper: {
+          sx: {
+            maxHeight: "calc(100vh - 16px)",
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+          },
+        },
+      }}
     >
       <LocalizationProvider dateAdapter={AdapterDayjs}>
         <Box sx={{ p: 1, display: "flex", flexDirection: "column", gap: 0.5, minWidth: 300 }}>
