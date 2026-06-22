@@ -43,6 +43,7 @@ import {
   todoFontCssFamily,
   type TodoFontEntry,
 } from "./todoFonts";
+import { resolveTodoColorTheme } from "../../lib/todoColorThemes";
 import type {
   SavedTodoFilter,
   TodoFilter,
@@ -355,6 +356,8 @@ export default function TodoWidgetWindow() {
   const setSelectedItemId = useTodoStore((s) => s.setSelectedItemId);
   const todoFontFamily = useStore((s) => s.appSettings.todoFontFamily);
   const todoCheckboxShape = useStore((s) => s.appSettings.todoCheckboxShape);
+  const todoColorThemeId = useStore((s) => s.appSettings.todoColorTheme);
+  const todoColorThemes = useStore((s) => s.appSettings.todoColorThemes);
   const todoWidgetBackgroundOpacity = useStore(
     (s) => s.appSettings.todoWidgetBackgroundOpacity,
   );
@@ -488,9 +491,12 @@ export default function TodoWidgetWindow() {
     getCurrentWindow().startDragging().catch(() => {});
   };
 
-  const panelBg = isDark
-    ? alpha("#000000", todoWidgetBackgroundOpacity)
-    : alpha("#ffffff", todoWidgetBackgroundOpacity);
+  const todoColorTheme = useMemo(
+    () => resolveTodoColorTheme(todoColorThemeId, todoColorThemes),
+    [todoColorThemeId, todoColorThemes],
+  );
+  const panelBaseColor = isDark ? "#20293a" : todoColorTheme.surface;
+  const panelBg = alpha(panelBaseColor, todoWidgetBackgroundOpacity);
   const panelBlur = todoWidgetBackgroundOpacity <= 0.2
     ? "none"
     : `blur(${Math.round(22 * todoWidgetBackgroundOpacity)}px) saturate(1.08)`;

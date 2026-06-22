@@ -41,7 +41,10 @@ export default function App() {
     todoAccentColor,
     todoAccentColorOverridden,
   );
-  const todoPrepaintBg = effectiveMode === "dark" ? "#20293a" : todoColorTheme.surface;
+  const todoPrepaintBg =
+    appView === "todo-widget"
+      ? "transparent"
+      : effectiveMode === "dark" ? "#20293a" : todoColorTheme.surface;
   const theme = useMemo(
     () => buildTheme(effectiveMode, effectiveAccentColor),
     [effectiveAccentColor, effectiveMode],
@@ -59,6 +62,22 @@ export default function App() {
     const handler = (event: MediaQueryListEvent) => setSystemDarkMode(event.matches);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: StorageEvent) => {
+      if (event.key !== TODO_SETTINGS_STORAGE_KEY || !event.newValue) return;
+      try {
+        const todoSettings = todoSettingsPayloadToState(JSON.parse(event.newValue));
+        useStore.setState({
+          appSettings: mergeTodoSettings(useStore.getState().appSettings, todoSettings),
+        });
+      } catch {
+        /* ignore malformed JSON */
+      }
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
   }, []);
 
   useEffect(() => {
