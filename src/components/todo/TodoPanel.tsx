@@ -24,6 +24,7 @@ import {
   IconButton,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import CloseIcon from "@mui/icons-material/Close";
@@ -50,6 +51,7 @@ import {
 import {
   SortableContext,
   arrayMove,
+  horizontalListSortingStrategy,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -268,6 +270,7 @@ function startOfTodayMs(): number {
 
 export default function TodoPanel() {
   const theme = useTheme();
+  const isMobileLayout = useMediaQuery(theme.breakpoints.down("sm"));
   const isDark = theme.palette.mode === "dark";
   const hydrate = useTodoStore((s) => s.hydrate);
   const reload = useTodoStore((s) => s.reload);
@@ -718,6 +721,8 @@ export default function TodoPanel() {
         inset: 0,
         display: "flex",
         flexDirection: "column",
+        boxSizing: "border-box",
+        pt: { xs: "max(env(safe-area-inset-top), 28px)", sm: 0 },
         overflow: "hidden",
         isolation: "isolate",
         bgcolor: surfaceBg,
@@ -756,9 +761,17 @@ export default function TodoPanel() {
         },
       }}
     >
-      <Box sx={{ flex: 1, minHeight: 0, display: "flex" }}>
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: { xs: "column-reverse", sm: "row" },
+        }}
+      >
         <TodoNavRail
           isDark={isDark}
+          mobile={isMobileLayout}
           background={railBg}
           activeIconColor={railActiveIconColor}
           activeView={activeView}
@@ -806,6 +819,20 @@ export default function TodoPanel() {
               <TitleDragStrip background={secondaryColumnBg} />
               <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
                 <TodoCalendar isDark={isDark} />
+              </Box>
+            </Box>
+          ) : isMobileLayout ? (
+            <Box
+              sx={{
+                height: "100%",
+                minHeight: 0,
+                background: currentDetailBg,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                <TodoDetail isDark={isDark} />
               </Box>
             </Box>
           ) : (
@@ -986,6 +1013,7 @@ function TitleDragStrip({ background }: { background: string }) {
     <Box
       data-tauri-drag-region
       sx={{
+        display: { xs: "none", sm: "block" },
         height: TODO_DRAG_TITLEBAR_HEIGHT,
         flexShrink: 0,
         background,
@@ -997,6 +1025,7 @@ function TitleDragStrip({ background }: { background: string }) {
 
 function TodoNavRail({
   isDark,
+  mobile,
   background,
   activeIconColor,
   activeView,
@@ -1012,6 +1041,7 @@ function TodoNavRail({
   onOpenSettings,
 }: {
   isDark: boolean;
+  mobile: boolean;
   background: string;
   activeIconColor: string;
   activeView: TodoRailView;
@@ -1136,20 +1166,24 @@ function TodoNavRail({
   return (
     <Box
       sx={{
-        width: 48,
+        height: { xs: "calc(58px + env(safe-area-inset-bottom))", sm: "100%" },
+        width: { xs: "100%", sm: 48 },
         flexShrink: 0,
-        pt: 0,
-        pb: 1.2,
+        pt: { xs: 0.5, sm: 0 },
+        pb: { xs: "max(8px, env(safe-area-inset-bottom))", sm: 1.2 },
+        px: { xs: 0.5, sm: 0 },
         display: "flex",
-        flexDirection: "column",
+        flexDirection: { xs: "row", sm: "column" },
         alignItems: "center",
-        gap: 1.3,
+        justifyContent: { xs: "space-around", sm: "flex-start" },
+        gap: { xs: 0, sm: 1.3 },
         background,
-        borderRight: 1,
+        borderRight: { xs: 0, sm: 1 },
+        borderTop: { xs: 1, sm: 0 },
         borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.045 : 0.032),
       }}
     >
-      <TitleDragStrip background={background} />
+      {!mobile && <TitleDragStrip background={background} />}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -1159,7 +1193,10 @@ function TodoNavRail({
         onDragCancel={releaseSuppressedClick}
         onDragEnd={handleDragEnd}
       >
-        <SortableContext items={normalizedOrder} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={normalizedOrder}
+          strategy={mobile ? horizontalListSortingStrategy : verticalListSortingStrategy}
+        >
           {normalizedOrder.map((action) => {
             const config = railActions[action];
             return (
@@ -1175,12 +1212,13 @@ function TodoNavRail({
                 secondaryShortcut={action === "search" ? searchShortcut : undefined}
                 onClick={() => runRailAction(action)}
                 isDark={isDark}
+                mobile={mobile}
               />
             );
           })}
         </SortableContext>
       </DndContext>
-      <Box sx={{ flex: 1 }} />
+      <Box sx={{ flex: 1, display: { xs: "none", sm: "block" } }} />
       <RailButton
         label="设置"
         active={activeView === "settings"}
@@ -1188,6 +1226,7 @@ function TodoNavRail({
         activeIconColor={activeIconColor}
         onClick={onOpenSettings}
         isDark={isDark}
+        mobile={mobile}
       />
     </Box>
   );
@@ -1227,6 +1266,7 @@ interface RailButtonProps {
   secondaryShortcut?: string;
   onClick?: () => void;
   isDark: boolean;
+  mobile?: boolean;
   rootRef?: (node: HTMLElement | null) => void;
   rootStyle?: CSSProperties;
   dragAttributes?: SortableAttributes;
@@ -1273,6 +1313,7 @@ function RailButton({
   secondaryShortcut,
   onClick,
   isDark,
+  mobile = false,
   rootRef,
   rootStyle,
   dragAttributes,
@@ -1290,7 +1331,7 @@ function RailButton({
   const tooltipTitle = shortcutText ? `${label} (${shortcutText})` : label;
 
   return (
-    <Tooltip title={tooltipTitle} placement="right" arrow>
+    <Tooltip title={tooltipTitle} placement={mobile ? "top" : "right"} arrow>
       <span ref={rootRef} style={{ display: "inline-flex", ...rootStyle }}>
         <IconButton
           {...dragAttributes}
@@ -1300,8 +1341,8 @@ function RailButton({
           aria-label={label}
           onClick={onClick}
           sx={{
-            width: 50,
-            height: 40,
+            width: mobile ? 52 : 50,
+            height: mobile ? 48 : 40,
             borderRadius: 1.2,
             border: 0,
             boxShadow: "none",
@@ -1406,7 +1447,7 @@ function WindowControls({ isDark }: { isDark: boolean }) {
         right: 0,
         zIndex: 40,
         height: 32,
-        display: "flex",
+        display: { xs: "none", sm: "flex" },
         alignItems: "center",
         justifyContent: "flex-end",
         pl: 0.5,

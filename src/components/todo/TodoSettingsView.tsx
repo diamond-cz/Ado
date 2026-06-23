@@ -8,14 +8,17 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
+import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import CloudSyncRoundedIcon from "@mui/icons-material/CloudSyncRounded";
 import CalendarTodayRoundedIcon from "@mui/icons-material/CalendarTodayRounded";
 import CheckBoxOutlineBlankRoundedIcon from "@mui/icons-material/CheckBoxOutlineBlankRounded";
 import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
+import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import ColorLensRoundedIcon from "@mui/icons-material/ColorLensRounded";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
@@ -161,6 +164,7 @@ function backupSourceLabel(source: string): string {
 
 export function TodoSettingsView({ isDark }: { isDark: boolean }) {
   const theme = useTheme();
+  const isMobileSettings = useMediaQuery(theme.breakpoints.down("sm"));
   const appSettings = useStore((s) => s.appSettings);
   const setTodoSettings = useStore((s) => s.setTodoSettings);
   const colorThemes = useMemo(
@@ -179,6 +183,7 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
   const settingsNavBg = isDark ? "#1b2432" : colorTheme.middle;
   const settingsContentBg = isDark ? "#20293a" : colorTheme.content;
   const [activeCategory, setActiveCategory] = useState<TodoSettingsCategory>("appearance");
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const activeItem = CATEGORY_ITEMS.find((item) => item.id === activeCategory) ?? CATEGORY_ITEMS[0];
   const [dataBusy, setDataBusy] = useState(false);
   const [dataStatus, setDataStatus] = useState<{
@@ -487,19 +492,21 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
         height: "100%",
         minHeight: 0,
         display: "flex",
+        minWidth: 0,
         background: settingsContentBg,
       }}
     >
       <Box
         sx={{
-          width: 248,
+          width: { xs: "100%", sm: 248 },
           flexShrink: 0,
-          display: "flex",
+          display: { xs: mobileDetailOpen ? "none" : "flex", sm: "flex" },
           flexDirection: "column",
-          borderRight: 1,
+          minHeight: 0,
+          borderRight: { xs: 0, sm: 1 },
           borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.08),
           background: settingsNavBg,
-          px: 1.4,
+          px: { xs: 1.2, sm: 1.4 },
           pt: 0,
           pb: 2,
         }}
@@ -521,12 +528,15 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
                 key={item.id}
                 component="button"
                 type="button"
-                onClick={() => setActiveCategory(item.id)}
+                onClick={() => {
+                  setActiveCategory(item.id);
+                  if (isMobileSettings) setMobileDetailOpen(true);
+                }}
                 sx={{
                   width: "100%",
-                  minHeight: 58,
-                  px: 1.2,
-                  py: 0.9,
+                  minHeight: { xs: 64, sm: 58 },
+                  px: { xs: 1.3, sm: 1.2 },
+                  py: { xs: 1.1, sm: 0.9 },
                   display: "flex",
                   alignItems: "center",
                   gap: 1.1,
@@ -558,6 +568,15 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
                     {item.description}
                   </Typography>
                 </Box>
+                <ChevronRightRoundedIcon
+                  sx={{
+                    ml: "auto",
+                    display: { xs: "block", sm: "none" },
+                    fontSize: 19,
+                    color: "text.secondary",
+                    flexShrink: 0,
+                  }}
+                />
               </Box>
             );
           })}
@@ -569,18 +588,79 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
           flex: 1,
           minWidth: 0,
           minHeight: 0,
-          display: "flex",
+          display: { xs: mobileDetailOpen ? "flex" : "none", sm: "flex" },
           flexDirection: "column",
           background: settingsContentBg,
         }}
       >
         <SettingsDragStrip background={settingsContentBg} />
+        <Box
+          sx={{
+            display: { xs: "flex", sm: "none" },
+            alignItems: "center",
+            gap: 1,
+            px: 1.2,
+            py: 0.8,
+            borderBottom: 1,
+            borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.08),
+            flexShrink: 0,
+          }}
+        >
+          <IconButton
+            size="small"
+            aria-label="返回设置"
+            onClick={() => setMobileDetailOpen(false)}
+            sx={{ width: 36, height: 36 }}
+          >
+            <ArrowBackRoundedIcon sx={{ fontSize: 20 }} />
+          </IconButton>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: 17, fontWeight: 850, lineHeight: 1.2 }}>
+              {activeItem.label}
+            </Typography>
+            <Typography
+              sx={{
+                mt: 0.2,
+                fontSize: 11,
+                color: "text.secondary",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {activeItem.description}
+            </Typography>
+          </Box>
+        </Box>
         <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-        <Box sx={{ width: "min(860px, 100%)", px: { xs: 2.5, md: 4 }, py: 3.5 }}>
-          <Typography sx={{ fontSize: 22, fontWeight: 850, lineHeight: 1.2 }}>
+        <Box
+          sx={{
+            width: "100%",
+            maxWidth: 860,
+            boxSizing: "border-box",
+            px: { xs: 1.4, md: 4 },
+            py: { xs: 2, md: 3.5 },
+          }}
+        >
+          <Typography
+            sx={{
+              display: { xs: "none", sm: "block" },
+              fontSize: 22,
+              fontWeight: 850,
+              lineHeight: 1.2,
+            }}
+          >
             {activeItem.label}
           </Typography>
-          <Typography sx={{ mt: 0.6, mb: 2.4, fontSize: 13, color: "text.secondary" }}>
+          <Typography
+            sx={{
+              display: { xs: "none", sm: "block" },
+              mt: 0.6,
+              mb: 2.4,
+              fontSize: 13,
+              color: "text.secondary",
+            }}
+          >
             {activeItem.description}
           </Typography>
 
@@ -849,7 +929,18 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
                   title="数据库备份和同步"
                   description="备份会上传当前 SQLite 快照和 MD 图片；同步只下载远端备份时间线与图片，不覆盖当前数据。"
                   control={
-                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "flex-end" }}>
+                    <Box
+                      sx={{
+                        width: { xs: "100%", sm: "auto" },
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 1,
+                        justifyContent: { xs: "flex-start", sm: "flex-end" },
+                        "& .MuiButton-root": {
+                          flex: { xs: "1 1 120px", sm: "0 0 auto" },
+                        },
+                      }}
+                    >
                       <Button
                         variant="contained"
                         size="small"
@@ -970,7 +1061,15 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
                 title="添加显示时区"
                 description={`日视图和周视图左侧时间刻度最多显示 ${MAX_TODO_TIME_ZONES} 个额外时区。`}
                 control={
-                  <Box sx={{ display: "flex", gap: 1, flexShrink: 0 }}>
+                  <Box
+                    sx={{
+                      width: { xs: "100%", sm: "auto" },
+                      display: "flex",
+                      flexDirection: { xs: "column", sm: "row" },
+                      gap: 1,
+                      flexShrink: 0,
+                    }}
+                  >
                     <TextField
                       select
                       size="small"
@@ -980,7 +1079,7 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
                         availableTodoTimeZoneOptions.length === 0
                       }
                       onChange={(event) => setPendingTodoTimeZone(event.target.value)}
-                      sx={{ width: 240 }}
+                      sx={{ width: { xs: "100%", sm: 240 } }}
                     >
                       {availableTodoTimeZoneOptions.map((option) => (
                         <MenuItem key={option.timeZone} value={option.timeZone}>
@@ -1076,6 +1175,7 @@ function SettingsDragStrip({
     <Box
       data-tauri-drag-region
       sx={{
+        display: { xs: "none", sm: "block" },
         height: TODO_SETTINGS_DRAG_TITLEBAR_HEIGHT,
         flexShrink: 0,
         mx: horizontalOffset > 0 ? -horizontalOffset : 0,
@@ -1112,11 +1212,12 @@ function BackupTimeline({
             key={`${entry.source}-${entry.fileName}`}
             sx={{
               minHeight: 62,
-              px: 2,
+              px: { xs: 1.4, sm: 2 },
               py: 1.1,
               display: "flex",
-              alignItems: "center",
-              gap: 1.3,
+              alignItems: { xs: "flex-start", sm: "center" },
+              flexWrap: { xs: "wrap", sm: "nowrap" },
+              gap: { xs: 1, sm: 1.3 },
               borderBottom: 1,
               borderColor: "divider",
               "&:last-of-type": { borderBottom: 0 },
@@ -1156,7 +1257,16 @@ function BackupTimeline({
                 {entry.fileName}
               </Typography>
             </Box>
-            <Box sx={{ display: "flex", flexShrink: 0, gap: 0.8 }}>
+            <Box
+              sx={{
+                width: { xs: "100%", sm: "auto" },
+                display: "flex",
+                flexShrink: 0,
+                gap: 0.8,
+                justifyContent: { xs: "flex-end", sm: "flex-start" },
+                flexWrap: "wrap",
+              }}
+            >
               <Button
                 variant="outlined"
                 size="small"
@@ -1213,7 +1323,15 @@ function ThemeModeSelector({
     },
   ];
   return (
-    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.8, justifyContent: "flex-end" }}>
+    <Box
+      sx={{
+        width: { xs: "100%", sm: "auto" },
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 0.8,
+        justifyContent: { xs: "flex-start", sm: "flex-end" },
+      }}
+    >
       {options.map((option) => {
         const active = value === option.value;
         return (
@@ -1269,7 +1387,15 @@ function TodoIdleEffectModeSelector({
     { value: "rain", label: "Rain" },
   ];
   return (
-    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.8, justifyContent: "flex-end" }}>
+    <Box
+      sx={{
+        width: { xs: "100%", sm: "auto" },
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 0.8,
+        justifyContent: { xs: "flex-start", sm: "flex-end" },
+      }}
+    >
       {options.map((option) => {
         const active = value === option.value;
         return (
@@ -1381,8 +1507,8 @@ function TodoColorThemeEditor({
   return (
     <Box
       sx={{
-        width: "min(430px, 48vw)",
-        minWidth: 320,
+        width: { xs: "100%", sm: "min(430px, 48vw)" },
+        minWidth: 0,
         display: "grid",
         gap: 1,
         justifyItems: "stretch",
@@ -1396,7 +1522,13 @@ function TodoColorThemeEditor({
       />
       {editorOpen && (
         <>
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.8 }}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+              gap: 0.8,
+            }}
+          >
             <TextField
               size="small"
               label="名称"
@@ -1554,9 +1686,9 @@ function TodoColorThemeSelector({
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: "repeat(3, 76px)",
+        gridTemplateColumns: { xs: "repeat(auto-fit, minmax(82px, 1fr))", sm: "repeat(3, 76px)" },
         gap: 0.8,
-        justifyContent: "flex-end",
+        justifyContent: { xs: "stretch", sm: "flex-end" },
       }}
     >
       {themes.map((option) => {
@@ -1568,7 +1700,7 @@ function TodoColorThemeSelector({
               type="button"
               onClick={() => onChange(option.id)}
               sx={{
-                width: 76,
+                width: { xs: "100%", sm: 76 },
                 minHeight: 58,
                 px: 0.7,
                 py: 0.65,
@@ -1653,7 +1785,7 @@ function TodoColorThemeSelector({
           onClick={onAdd}
           aria-label="新增自定义颜色"
           sx={{
-            width: 76,
+            width: { xs: "100%", sm: 76 },
             minHeight: 58,
             borderRadius: 1,
             border: 1,
@@ -1705,9 +1837,10 @@ function TodoFontSelector({
   return (
     <Box
       sx={{
+        width: { xs: "100%", sm: "auto" },
         display: "flex",
         alignItems: "center",
-        justifyContent: "flex-end",
+        justifyContent: { xs: "flex-start", sm: "flex-end" },
         gap: 0.8,
         flexWrap: "wrap",
       }}
@@ -1718,7 +1851,8 @@ function TodoFontSelector({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         sx={{
-          width: 250,
+          width: { xs: "calc(100% - 42px)", sm: 250 },
+          minWidth: { xs: 0, sm: 250 },
           flexShrink: 0,
           "& .MuiSelect-select": {
             fontFamily: selectedFontFamily ?? "inherit",
@@ -1776,7 +1910,16 @@ function AccentColorSelector({
   const showCustomPicker = customPickerOpen || !selectedPreset;
 
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+    <Box
+      sx={{
+        width: { xs: "100%", sm: "auto" },
+        display: "flex",
+        alignItems: "center",
+        gap: 0.8,
+        flexWrap: "wrap",
+        justifyContent: { xs: "flex-start", sm: "flex-end" },
+      }}
+    >
       {TODO_ACCENT_COLORS.map((color) => {
         const active = value.toLowerCase() === color.toLowerCase();
         return (
@@ -1881,7 +2024,7 @@ function AccentColorSelector({
 
 function SettingGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Box sx={{ mb: 2.4 }}>
+    <Box sx={{ mb: { xs: 1.8, sm: 2.4 } }}>
       <Typography sx={{ mb: 1, fontSize: 13, fontWeight: 850, color: "text.secondary" }}>
         {title}
       </Typography>
@@ -1917,12 +2060,13 @@ function SettingRow({
   return (
     <Box
       sx={{
-        minHeight: 74,
-        px: 2,
-        py: 1.4,
+        minHeight: { xs: 0, sm: 74 },
+        px: { xs: 1.4, sm: 2 },
+        py: { xs: 1.35, sm: 1.4 },
         display: "flex",
-        alignItems: "center",
-        gap: 1.5,
+        alignItems: { xs: "stretch", sm: "center" },
+        flexDirection: { xs: "column", sm: "row" },
+        gap: { xs: 1.1, sm: 1.5 },
         borderBottom: 1,
         borderColor: "divider",
         "&:last-of-type": { borderBottom: 0 },
@@ -1930,27 +2074,47 @@ function SettingRow({
     >
       <Box
         sx={{
-          width: 38,
-          height: 38,
-          borderRadius: "50%",
-          display: "grid",
-          placeItems: "center",
-          bgcolor: (theme) =>
-            theme.palette.mode === "dark"
-              ? alpha("#f8fafc", 0.06)
-              : alpha("#0f172a", 0.05),
-          flexShrink: 0,
+          width: { xs: "100%", sm: "auto" },
+          minWidth: 0,
+          flex: 1,
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 1.2,
         }}
       >
-        {icon}
+        <Box
+          sx={{
+            width: 38,
+            height: 38,
+            borderRadius: "50%",
+            display: "grid",
+            placeItems: "center",
+            bgcolor: (theme) =>
+              theme.palette.mode === "dark"
+                ? alpha("#f8fafc", 0.06)
+                : alpha("#0f172a", 0.05),
+            flexShrink: 0,
+          }}
+        >
+          {icon}
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 800, mb: 0.2 }}>{title}</Typography>
+          <Typography sx={{ fontSize: 12, color: "text.secondary", lineHeight: 1.45 }}>
+            {description}
+          </Typography>
+        </Box>
       </Box>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography sx={{ fontSize: 14, fontWeight: 800, mb: 0.2 }}>{title}</Typography>
-        <Typography sx={{ fontSize: 12, color: "text.secondary", lineHeight: 1.45 }}>
-          {description}
-        </Typography>
+      <Box
+        sx={{
+          width: { xs: "100%", sm: "auto" },
+          minWidth: 0,
+          display: "flex",
+          justifyContent: { xs: "flex-start", sm: "flex-end" },
+        }}
+      >
+        {control}
       </Box>
-      {control}
     </Box>
   );
 }
@@ -1978,7 +2142,7 @@ function ShortcutSettingRow({
       title={title}
       description={description}
       control={
-        <Box sx={{ width: "min(430px, 48vw)", minWidth: 300, flexShrink: 0 }}>
+        <Box sx={{ width: { xs: "100%", sm: "min(430px, 48vw)" }, minWidth: 0, flexShrink: 0 }}>
           <ShortcutInput
             value={value}
             placeholder="未设置"
@@ -2022,7 +2186,7 @@ function TextSettingRow({
           value={value}
           placeholder={placeholder}
           onChange={(event) => onChange(event.target.value)}
-          sx={{ width: 280, flexShrink: 0 }}
+          sx={{ width: { xs: "100%", sm: 280 }, flexShrink: 0 }}
         />
       }
     />
@@ -2082,7 +2246,7 @@ function NumberSettingRow({
             }
           }}
           slotProps={{ htmlInput: { min, max, style: { textAlign: "center", width: 72 } } }}
-          sx={{ flexShrink: 0 }}
+          sx={{ width: { xs: 112, sm: "auto" }, flexShrink: 0 }}
         />
       }
     />
@@ -2115,7 +2279,7 @@ function SelectSettingRow({
           size="small"
           value={value}
           onChange={(event) => onChange(Number(event.target.value))}
-          sx={{ width: 132, flexShrink: 0 }}
+          sx={{ width: { xs: "100%", sm: 132 }, flexShrink: 0 }}
         >
           {options.map((option) => (
             <MenuItem key={option.value} value={option.value}>

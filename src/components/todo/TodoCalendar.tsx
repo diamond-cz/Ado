@@ -28,6 +28,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
@@ -664,6 +665,7 @@ export function TodoCalendar({
   compact = false,
 }: Props) {
   const theme = useTheme();
+  const isMobileCalendar = useMediaQuery(theme.breakpoints.down("sm"));
   const rootRef = useRef<HTMLDivElement | null>(null);
   const calendarSurfaceRef = useRef<HTMLDivElement | null>(null);
   const yearViewScrollRef = useRef<HTMLDivElement | null>(null);
@@ -931,8 +933,9 @@ export function TodoCalendar({
           : calendarViewType === "customAgenda"
             ? `日程 ${agendaDayCount}天`
           : "自定义";
+  const viewPickerButtonText = isMobileCalendar ? "视图" : viewPickerLabel;
   const isYearView = calendarViewType === "todoYear";
-  const showInboxPane = !compact;
+  const showInboxPane = !compact && !isMobileCalendar;
   const showInboxToggle = showInboxPane;
   const inboxPaneVisible = showInboxPane && !inboxPaneCollapsed;
   const calendarInboxDefaultSizes = useMemo(() => readCalendarInboxSplitSizes(), []);
@@ -2098,7 +2101,7 @@ export function TodoCalendar({
         position: "relative",
         display: "flex",
         flexDirection: "column",
-        p: compact ? 0 : 1,
+        p: { xs: 0, sm: compact ? 0 : 1 },
         "--fc-border-color": borderColor,
         "--fc-page-bg-color": "transparent",
         "--fc-neutral-bg-color": subtleBg,
@@ -2117,21 +2120,54 @@ export function TodoCalendar({
           minHeight: "0 !important",
         },
         "& .fc .fc-toolbar.fc-header-toolbar": {
-          minHeight: compact ? 38 : 44,
+          minHeight: { xs: "auto", sm: compact ? 38 : 44 },
           mb: 0,
-          px: compact ? 0.6 : 1,
-          pb: compact ? 0.6 : 1,
-          gap: 1,
+          px: { xs: 1, sm: compact ? 0.6 : 1 },
+          pt: { xs: 0.7, sm: 0 },
+          pb: { xs: 0.8, sm: compact ? 0.6 : 1 },
+          gap: { xs: 0.6, sm: 1 },
+          rowGap: { xs: 0.7, sm: 1 },
+          flexWrap: { xs: "wrap", sm: "nowrap" },
+          alignItems: { xs: "center", sm: "center" },
           borderBottom: 1,
           borderColor,
         },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk": {
+          minWidth: 0,
+          display: "flex",
+          alignItems: "center",
+        },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(1)": {
+          order: { xs: 1, sm: 0 },
+          flex: { xs: "0 0 auto", sm: "0 1 auto" },
+        },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(2)": {
+          order: { xs: 1, sm: 0 },
+          flex: { xs: "1 1 0", sm: "0 1 auto" },
+          justifyContent: { xs: "center", sm: "center" },
+        },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(3)": {
+          order: { xs: 2, sm: 0 },
+          flex: { xs: "1 0 100%", sm: "0 1 auto" },
+          width: { xs: "100%", sm: "auto" },
+          display: "flex",
+          gap: { xs: 0.6, sm: 0 },
+          justifyContent: { xs: "stretch", sm: "flex-end" },
+        },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(3) .fc-button": {
+          flex: { xs: "1 1 0", sm: "0 0 auto" },
+        },
         "& .fc .fc-toolbar-title": {
-          fontSize: compact ? 14 : 17,
+          minWidth: 0,
+          fontSize: { xs: 18, sm: compact ? 14 : 17 },
           fontWeight: 700,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         },
         "& .fc .fc-button": {
-          height: compact ? 26 : 30,
-          px: compact ? 0.8 : 1.1,
+          height: { xs: 36, sm: compact ? 26 : 30 },
+          px: { xs: 0.9, sm: compact ? 0.8 : 1.1 },
           py: 0,
           borderRadius: "4px",
           borderColor,
@@ -2139,7 +2175,7 @@ export function TodoCalendar({
           color: "text.secondary",
           boxShadow: "none",
           textTransform: "none",
-          fontSize: compact ? 12 : 13,
+          fontSize: { xs: 13, sm: compact ? 12 : 13 },
           fontWeight: 600,
         },
         "& .fc .fc-button:hover": {
@@ -2728,7 +2764,7 @@ export function TodoCalendar({
                 click: (_event, element) => setSubscriptionMenuAnchor(element),
               },
               viewPicker: {
-                text: viewPickerLabel,
+                text: viewPickerButtonText,
                 click: (_event, element) => setViewMenuAnchor(element),
               },
               yearView: {
@@ -2741,7 +2777,9 @@ export function TodoCalendar({
                 ? "inboxToggle calendarToday calendarPrev,calendarNext"
                 : "calendarToday calendarPrev,calendarNext",
               center: isYearView ? "yearTitle" : "title",
-              right: compact
+              right: isMobileCalendar
+                ? "listFilter importCalendar viewPicker"
+                : compact
                 ? ""
                 : "listFilter importCalendar viewPicker timeGridDay,dayGridWeek,dayGridMonth,yearView,customAgenda",
             }}

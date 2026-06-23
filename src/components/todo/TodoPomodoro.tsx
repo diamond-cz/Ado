@@ -20,6 +20,7 @@ import {
   ToggleButtonGroup,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import { Allotment } from "allotment";
 import { alpha, useTheme } from "@mui/material/styles";
@@ -110,6 +111,7 @@ export function TodoPomodoro({
   onActiveItemIdChange,
 }: TodoPomodoroProps) {
   const theme = useTheme();
+  const isMobilePomodoro = useMediaQuery(theme.breakpoints.down("sm"));
   const items = useTodoStore((s) => s.items);
   const folders = useTodoStore((s) => s.folders);
   const lists = useTodoStore((s) => s.lists);
@@ -558,6 +560,371 @@ export function TodoPomodoro({
     setTimelineGroupKey(null);
   };
 
+  const timerPane = (
+    <Box
+      sx={{
+        width: "100%",
+        height: { xs: "auto", sm: "100%" },
+        minHeight: 0,
+        boxSizing: "border-box",
+        p: { xs: 2, md: 3 },
+        pt: { xs: 1.4, md: 3 },
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        overflow: { xs: "visible", sm: "auto" },
+        background: mainPaneBg,
+      }}
+    >
+      <Box
+        sx={{
+          width: "100%",
+          display: "flex",
+          flexDirection: { xs: "column", sm: "row" },
+          alignItems: { xs: "stretch", sm: "center" },
+          gap: { xs: 1, sm: 1 },
+        }}
+      >
+        <Typography
+          sx={{
+            fontSize: { xs: 24, sm: 22 },
+            fontWeight: 850,
+            lineHeight: 1.15,
+            flex: 1,
+          }}
+        >
+          番茄专注
+        </Typography>
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={mode}
+          onChange={(_, next: PomodoroMode | null) => {
+            if (!next || next === mode || running) return;
+            resetTimer();
+            setMode(next);
+          }}
+          sx={{
+            width: { xs: "100%", sm: "auto" },
+            alignSelf: { xs: "stretch", sm: "auto" },
+            "& .MuiToggleButtonGroup-grouped": {
+              flex: { xs: 1, sm: "0 0 auto" },
+              minHeight: { xs: 40, sm: 34 },
+              px: { xs: 1, sm: 1.4 },
+              whiteSpace: "nowrap",
+            },
+          }}
+        >
+          <ToggleButton value="pomodoro">番茄计时</ToggleButton>
+          <ToggleButton value="stopwatch">正计时</ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
+
+      <Box
+        sx={{
+          flex: { xs: "0 0 auto", sm: 1 },
+          minHeight: { xs: "auto", sm: 0 },
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: { xs: "flex-start", sm: "center" },
+          pt: { xs: 1.4, sm: 2 },
+          pb: { xs: 1.8, sm: 0 },
+        }}
+      >
+        <Button
+          variant="text"
+          onClick={(event) => {
+            setTaskQuery("");
+            setTaskPickerAnchor(event.currentTarget);
+          }}
+          sx={{
+            width: { xs: "100%", sm: "auto" },
+            maxWidth: { xs: 360, sm: 320 },
+            color: "text.secondary",
+            fontSize: 14,
+            fontWeight: 600,
+            textTransform: "none",
+            "& .MuiButton-endIcon": { ml: 0.2 },
+          }}
+          endIcon={<Box component="span">›</Box>}
+        >
+          <Box
+            component="span"
+            sx={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {activeItem?.content || "专注"}
+          </Box>
+        </Button>
+        {activeItem ? (
+          <Typography
+            sx={{
+              mt: 0.4,
+              maxWidth: { xs: 360, sm: 320 },
+              fontSize: 12,
+              color: "text.secondary",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={`已专注 ${formatStatDuration(activeItemTotalFocusMs)}`}
+          >
+            已专注 {formatStatDuration(activeItemTotalFocusMs)}
+          </Typography>
+        ) : null}
+
+        <Box sx={{ mt: { xs: 2.2, sm: 3 }, display: "flex", justifyContent: "center" }}>
+          <TimerDial
+            isDark={isDark}
+            color={theme.palette.primary.main}
+            variant={mode}
+            progress={progress}
+            display={formatTimer(displayMs)}
+            subText={mode === "pomodoro" ? "" : "正计时"}
+            durationMinutes={effectiveDurationMinutes}
+            adjusting={durationAdjusting}
+            editable={mode === "pomodoro" && !running && liveElapsedMs === 0}
+            onAdjustingChange={handleDurationAdjustingChange}
+            onDurationChange={handleDurationChange}
+          />
+        </Box>
+
+        <Box
+          sx={{
+            mt: { xs: 2.2, sm: 3 },
+            width: "100%",
+            maxWidth: { xs: 360, sm: 420 },
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 1,
+          }}
+        >
+          <Button
+            variant="contained"
+            size="large"
+            startIcon={running ? <PauseRoundedIcon /> : <PlayArrowRoundedIcon />}
+            onClick={toggleRunning}
+            sx={{
+              flex: { xs: 1, sm: "0 0 auto" },
+              minWidth: { xs: 0, sm: 128 },
+              borderRadius: 1,
+            }}
+          >
+            {running ? "暂停" : liveElapsedMs > 0 ? "继续" : "开始"}
+          </Button>
+          <Tooltip title="重置">
+            <span>
+              <IconButton
+                disabled={running && liveElapsedMs <= 0}
+                onClick={resetTimer}
+                sx={{ width: 42, height: 42, borderRadius: 1 }}
+              >
+                <ReplayRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title={mode === "pomodoro" ? "提前结束" : "完成记录"}>
+            <span>
+              <IconButton
+                disabled={liveElapsedMs < 1000}
+                onClick={() => finishSession()}
+                sx={{ width: 42, height: 42, borderRadius: 1 }}
+              >
+                <StopRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Box>
+
+        <TaskPickerPopover
+          isDark={isDark}
+          anchorEl={taskPickerAnchor}
+          activeItemId={activeItem?.id ?? null}
+          query={taskQuery}
+          items={focusableItems}
+          folders={folders}
+          lists={lists}
+          groups={groups}
+          listById={listById}
+          focusedMsByItemId={focusedMsByItemId}
+          onQueryChange={setTaskQuery}
+          onClose={() => setTaskPickerAnchor(null)}
+          onDirectFocus={directFocus}
+          onSelectTask={selectTask}
+        />
+      </Box>
+    </Box>
+  );
+
+  const overviewPane = (
+    <Box
+      sx={{
+        width: "100%",
+        height: { xs: "auto", sm: "100%" },
+        minHeight: 0,
+        boxSizing: "border-box",
+        p: { xs: 1.6, sm: 2 },
+        overflow: { xs: "visible", sm: "auto" },
+        background: asidePaneBg,
+        borderTop: {
+          xs: `1px solid ${alpha(isDark ? "#f8fafc" : "#0f172a", 0.08)}`,
+          sm: 0,
+        },
+      }}
+    >
+      <Typography sx={{ fontSize: 16, fontWeight: 800 }}>专注概览</Typography>
+      <Box sx={{ mt: 1.5, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
+        <StatBox label="今日番茄" value={`${stats.todayCount}`} isDark={isDark} />
+        <StatBox
+          label="今日专注"
+          value={formatStatDuration(stats.todayDuration)}
+          isDark={isDark}
+        />
+        <StatBox label="总番茄" value={`${stats.totalCount}`} isDark={isDark} />
+        <StatBox
+          label="总专注"
+          value={formatStatDuration(stats.totalDuration)}
+          isDark={isDark}
+        />
+      </Box>
+
+      <Box sx={{ mt: 2.5, mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+        <Typography sx={{ fontSize: 14, fontWeight: 800, flex: 1 }}>
+          专注记录
+        </Typography>
+        <Tooltip title="更多">
+          <span>
+            <IconButton
+              size="small"
+              disabled={sessionGroups.length === 0}
+              onClick={(event) => setRecordsMenuAnchor(event.currentTarget)}
+              sx={{ width: 28, height: 28 }}
+            >
+              <MoreHorizRoundedIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Box>
+      {sessionGroups.length === 0 ? (
+        <Box
+          sx={{
+            height: { xs: 96, sm: 160 },
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "text.secondary",
+            fontSize: 13,
+          }}
+        >
+          暂无记录
+        </Box>
+      ) : (
+        <Box sx={{ display: "grid", gap: 0.8 }}>
+          {sessionGroups.slice(0, 30).map((group) => (
+            <Box
+              key={group.key}
+              sx={{
+                p: 1,
+                borderRadius: 1,
+                bgcolor: isDark ? alpha("#000", 0.18) : "#ffffff",
+                border: 1,
+                borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.08),
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Typography
+                  sx={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    flex: 1,
+                    minWidth: 0,
+                  }}
+                  title={group.itemTitle}
+                >
+                  {group.itemTitle}
+                </Typography>
+                <Tooltip title="更多">
+                  <IconButton
+                    size="small"
+                    onClick={(event) =>
+                      setRecordMenu({
+                        anchor: event.currentTarget,
+                        groupKey: group.key,
+                      })
+                    }
+                    sx={{ width: 24, height: 24, color: "text.secondary" }}
+                  >
+                    <MoreHorizRoundedIcon sx={{ fontSize: 17 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+              <Typography sx={{ mt: 0.3, fontSize: 12, color: "text.secondary" }}>
+                累计专注 {formatStatDuration(group.totalDuration)} ·{" "}
+                {group.sessions.length} 次 · 最近 {formatRecordTime(group.latestEndAt)}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
+      <Menu
+        open={Boolean(recordsMenuAnchor)}
+        anchorEl={recordsMenuAnchor}
+        onClose={() => setRecordsMenuAnchor(null)}
+      >
+        <MenuItem onClick={clearSessions} disabled={sessionGroups.length === 0}>
+          <ListItemIcon>
+            <DeleteOutlineRoundedIcon fontSize="small" color="error" />
+          </ListItemIcon>
+          <ListItemText sx={{ color: "error.main" }}>清空专注记录</ListItemText>
+        </MenuItem>
+      </Menu>
+      <Menu
+        open={Boolean(recordMenu)}
+        anchorEl={recordMenu?.anchor ?? null}
+        onClose={() => setRecordMenu(null)}
+      >
+        <MenuItem
+          onClick={() => {
+            if (!recordMenu) return;
+            setTimelineGroupKey(recordMenu.groupKey);
+            setRecordMenu(null);
+          }}
+        >
+          <ListItemIcon>
+            <ViewAgendaRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>专注时间线</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (recordMenu) deleteSessionGroup(recordMenu.groupKey);
+          }}
+        >
+          <ListItemIcon>
+            <DeleteOutlineRoundedIcon fontSize="small" color="error" />
+          </ListItemIcon>
+          <ListItemText sx={{ color: "error.main" }}>删除记录</ListItemText>
+        </MenuItem>
+      </Menu>
+      <FocusTimelineDialog
+        open={Boolean(activeTimelineGroup)}
+        group={activeTimelineGroup}
+        isDark={isDark}
+        onClose={() => setTimelineGroupKey(null)}
+      />
+    </Box>
+  );
+
   return (
     <Box
       sx={{
@@ -567,352 +934,36 @@ export function TodoPomodoro({
         background: rootBg,
       }}
     >
-      <Allotment
-        defaultSizes={readPomodoroSplitSizes() ?? [760, 340]}
-        onChange={(sizes) => {
-          if (sizes.length !== 2) return;
-          try {
-            localStorage.setItem(POMODORO_SPLIT_KEY, JSON.stringify(sizes));
-          } catch {
-            /* localStorage may be disabled */
-          }
-        }}
-      >
-        <Allotment.Pane minSize={420}>
-      <Box
-        sx={{
-          width: "100%",
-          height: "100%",
-          minHeight: 0,
-          boxSizing: "border-box",
-          p: { xs: 2, md: 3 },
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          overflow: "auto",
-          background: mainPaneBg,
-        }}
-      >
-        <Box sx={{ width: "100%", display: "flex", alignItems: "center", gap: 1 }}>
-          <Typography sx={{ fontSize: 22, fontWeight: 800, flex: 1 }}>
-            番茄专注
-          </Typography>
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={mode}
-            onChange={(_, next: PomodoroMode | null) => {
-              if (!next || next === mode || running) return;
-              resetTimer();
-              setMode(next);
-            }}
-          >
-            <ToggleButton value="pomodoro" sx={{ px: 1.4 }}>
-              番茄计时
-            </ToggleButton>
-            <ToggleButton value="stopwatch" sx={{ px: 1.4 }}>
-              正计时
-            </ToggleButton>
-          </ToggleButtonGroup>
-        </Box>
-
+      {isMobilePomodoro ? (
         <Box
           sx={{
-            flex: 1,
+            height: "100%",
             minHeight: 0,
-            width: "100%",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            pt: 2,
+            overflowY: "auto",
+            background: mainPaneBg,
           }}
         >
-          <Button
-            variant="text"
-            onClick={(event) => {
-              setTaskQuery("");
-              setTaskPickerAnchor(event.currentTarget);
-            }}
-            sx={{
-              maxWidth: 320,
-              color: "text.secondary",
-              fontSize: 14,
-              fontWeight: 600,
-              textTransform: "none",
-              "& .MuiButton-endIcon": { ml: 0.2 },
-            }}
-            endIcon={<Box component="span">›</Box>}
-          >
-            <Box
-              component="span"
-              sx={{
-                minWidth: 0,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {activeItem?.content || "专注"}
-            </Box>
-          </Button>
-          {activeItem ? (
-            <Typography
-              sx={{
-                mt: 0.4,
-                maxWidth: 320,
-                fontSize: 12,
-                color: "text.secondary",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-              title={`已专注 ${formatStatDuration(activeItemTotalFocusMs)}`}
-            >
-              已专注 {formatStatDuration(activeItemTotalFocusMs)}
-            </Typography>
-          ) : null}
-
-          <Box sx={{ mt: 3, display: "flex", justifyContent: "center" }}>
-            <TimerDial
-              isDark={isDark}
-              color={theme.palette.primary.main}
-              variant={mode}
-              progress={progress}
-              display={formatTimer(displayMs)}
-              subText={mode === "pomodoro" ? "" : "正计时"}
-              durationMinutes={effectiveDurationMinutes}
-              adjusting={durationAdjusting}
-              editable={mode === "pomodoro" && !running && liveElapsedMs === 0}
-              onAdjustingChange={handleDurationAdjustingChange}
-              onDurationChange={handleDurationChange}
-            />
-          </Box>
-
-          <Box
-            sx={{
-              mt: 3,
-              width: "100%",
-              maxWidth: 420,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 1,
-            }}
-          >
-            <Button
-              variant="contained"
-              size="large"
-              startIcon={
-                running ? <PauseRoundedIcon /> : <PlayArrowRoundedIcon />
-              }
-              onClick={toggleRunning}
-              sx={{ minWidth: 128, borderRadius: 1 }}
-            >
-              {running ? "暂停" : liveElapsedMs > 0 ? "继续" : "开始"}
-            </Button>
-            <Tooltip title="重置">
-              <span>
-                <IconButton
-                  disabled={running && liveElapsedMs <= 0}
-                  onClick={resetTimer}
-                  sx={{ width: 42, height: 42, borderRadius: 1 }}
-                >
-                  <ReplayRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title={mode === "pomodoro" ? "提前结束" : "完成记录"}>
-              <span>
-                <IconButton
-                  disabled={liveElapsedMs < 1000}
-                  onClick={() => finishSession()}
-                  sx={{ width: 42, height: 42, borderRadius: 1 }}
-                >
-                  <StopRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-          </Box>
-
-          <TaskPickerPopover
-            isDark={isDark}
-            anchorEl={taskPickerAnchor}
-            activeItemId={activeItem?.id ?? null}
-            query={taskQuery}
-            items={focusableItems}
-            folders={folders}
-            lists={lists}
-            groups={groups}
-            listById={listById}
-            focusedMsByItemId={focusedMsByItemId}
-            onQueryChange={setTaskQuery}
-            onClose={() => setTaskPickerAnchor(null)}
-            onDirectFocus={directFocus}
-            onSelectTask={selectTask}
-          />
+          {timerPane}
+          {overviewPane}
         </Box>
-      </Box>
-        </Allotment.Pane>
-
-        <Allotment.Pane minSize={280} preferredSize={340}>
-      <Box
-        sx={{
-          width: "100%",
-          height: "100%",
-          minHeight: 0,
-          boxSizing: "border-box",
-          p: 2,
-          overflow: "auto",
-          background: asidePaneBg,
-        }}
-      >
-        <Typography sx={{ fontSize: 16, fontWeight: 800 }}>专注概览</Typography>
-        <Box sx={{ mt: 1.5, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-          <StatBox label="今日番茄" value={`${stats.todayCount}`} isDark={isDark} />
-          <StatBox
-            label="今日专注"
-            value={formatStatDuration(stats.todayDuration)}
-            isDark={isDark}
-          />
-          <StatBox label="总番茄" value={`${stats.totalCount}`} isDark={isDark} />
-          <StatBox
-            label="总专注"
-            value={formatStatDuration(stats.totalDuration)}
-            isDark={isDark}
-          />
-        </Box>
-
-        <Box sx={{ mt: 2.5, mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 800, flex: 1 }}>
-            专注记录
-          </Typography>
-          <Tooltip title="更多">
-            <span>
-              <IconButton
-                size="small"
-                disabled={sessionGroups.length === 0}
-                onClick={(event) => setRecordsMenuAnchor(event.currentTarget)}
-                sx={{ width: 28, height: 28 }}
-              >
-                <MoreHorizRoundedIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-        </Box>
-        {sessionGroups.length === 0 ? (
-          <Box
-            sx={{
-              height: 160,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "text.secondary",
-              fontSize: 13,
-            }}
-          >
-            暂无记录
-          </Box>
-        ) : (
-          <Box sx={{ display: "grid", gap: 0.8 }}>
-            {sessionGroups.slice(0, 30).map((group) => (
-              <Box
-                key={group.key}
-                sx={{
-                  p: 1,
-                  borderRadius: 1,
-                  bgcolor: isDark ? alpha("#000", 0.18) : "#ffffff",
-                  border: 1,
-                  borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.08),
-                }}
-              >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                  <Typography
-                    sx={{
-                      fontSize: 13,
-                      fontWeight: 700,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      flex: 1,
-                      minWidth: 0,
-                    }}
-                    title={group.itemTitle}
-                  >
-                    {group.itemTitle}
-                  </Typography>
-                  <Tooltip title="更多">
-                    <IconButton
-                      size="small"
-                      onClick={(event) =>
-                        setRecordMenu({
-                          anchor: event.currentTarget,
-                          groupKey: group.key,
-                        })
-                      }
-                      sx={{ width: 24, height: 24, color: "text.secondary" }}
-                    >
-                      <MoreHorizRoundedIcon sx={{ fontSize: 17 }} />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-                <Typography sx={{ mt: 0.3, fontSize: 12, color: "text.secondary" }}>
-                  累计专注 {formatStatDuration(group.totalDuration)} ·{" "}
-                  {group.sessions.length} 次 · 最近 {formatRecordTime(group.latestEndAt)}
-                </Typography>
-              </Box>
-            ))}
-          </Box>
-        )}
-        <Menu
-          open={Boolean(recordsMenuAnchor)}
-          anchorEl={recordsMenuAnchor}
-          onClose={() => setRecordsMenuAnchor(null)}
+      ) : (
+        <Allotment
+          defaultSizes={readPomodoroSplitSizes() ?? [760, 340]}
+          onChange={(sizes) => {
+            if (sizes.length !== 2) return;
+            try {
+              localStorage.setItem(POMODORO_SPLIT_KEY, JSON.stringify(sizes));
+            } catch {
+              /* localStorage may be disabled */
+            }
+          }}
         >
-          <MenuItem onClick={clearSessions} disabled={sessionGroups.length === 0}>
-            <ListItemIcon>
-              <DeleteOutlineRoundedIcon fontSize="small" color="error" />
-            </ListItemIcon>
-            <ListItemText sx={{ color: "error.main" }}>清空专注记录</ListItemText>
-          </MenuItem>
-        </Menu>
-        <Menu
-          open={Boolean(recordMenu)}
-          anchorEl={recordMenu?.anchor ?? null}
-          onClose={() => setRecordMenu(null)}
-        >
-          <MenuItem
-            onClick={() => {
-              if (!recordMenu) return;
-              setTimelineGroupKey(recordMenu.groupKey);
-              setRecordMenu(null);
-            }}
-          >
-            <ListItemIcon>
-              <ViewAgendaRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>专注时间线</ListItemText>
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              if (recordMenu) deleteSessionGroup(recordMenu.groupKey);
-            }}
-          >
-            <ListItemIcon>
-              <DeleteOutlineRoundedIcon fontSize="small" color="error" />
-            </ListItemIcon>
-            <ListItemText sx={{ color: "error.main" }}>删除记录</ListItemText>
-          </MenuItem>
-        </Menu>
-        <FocusTimelineDialog
-          open={Boolean(activeTimelineGroup)}
-          group={activeTimelineGroup}
-          isDark={isDark}
-          onClose={() => setTimelineGroupKey(null)}
-        />
-      </Box>
-        </Allotment.Pane>
-      </Allotment>
+          <Allotment.Pane minSize={420}>{timerPane}</Allotment.Pane>
+          <Allotment.Pane minSize={280} preferredSize={340}>
+            {overviewPane}
+          </Allotment.Pane>
+        </Allotment>
+      )}
     </Box>
   );
 }
@@ -1401,8 +1452,8 @@ function TimerDial({
     >
     <Box
       sx={{
-        width: { xs: 220, md: 250 },
-        height: { xs: 220, md: 250 },
+        width: { xs: "clamp(220px, 66vw, 280px)", sm: 250 },
+        height: { xs: "clamp(220px, 66vw, 280px)", sm: 250 },
         borderRadius: "50%",
         p: 1.1,
         background: showSecondTicks
@@ -1469,7 +1520,7 @@ function TimerDial({
           />
         ) : (
           <>
-            <Typography sx={{ fontSize: { xs: 42, md: 48 }, fontWeight: 800 }}>
+            <Typography sx={{ fontSize: { xs: "clamp(40px, 12vw, 52px)", sm: 48 }, fontWeight: 800 }}>
               {display}
             </Typography>
             {subText && (

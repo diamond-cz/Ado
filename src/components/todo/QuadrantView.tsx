@@ -73,11 +73,11 @@ export function QuadrantView({ isDark, onOpenContextTarget }: QuadrantViewProps)
       sx={{
         height: "100%",
         display: "grid",
-        gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
-        gridAutoRows: { xs: "minmax(280px, 1fr)", md: "minmax(0, 1fr)" },
-        gap: 1,
-        p: 1,
-        overflow: "auto",
+        gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "1fr 1fr" },
+        gridTemplateRows: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(2, minmax(0, 1fr))" },
+        gap: { xs: 0.7, md: 1 },
+        p: { xs: 0.8, md: 1 },
+        overflow: { xs: "hidden", md: "auto" },
       }}
     >
       {TODO_PRIORITY_OPTIONS.map((option) => (
@@ -97,51 +97,65 @@ export function QuadrantView({ isDark, onOpenContextTarget }: QuadrantViewProps)
           <Box
             sx={{
               flexShrink: 0,
-              px: 1.2,
-              py: 0.9,
+              px: { xs: 0.85, sm: 1.2 },
+              py: { xs: 0.75, sm: 0.9 },
               display: "flex",
               alignItems: "center",
-              gap: 0.8,
+              gap: { xs: 0.55, sm: 0.8 },
               borderBottom: 1,
               borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.06),
             }}
           >
             <Box
               sx={{
-                width: 24,
-                height: 24,
+                width: { xs: 22, sm: 24 },
+                height: { xs: 22, sm: 24 },
                 borderRadius: "50%",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 color: "#fff",
                 bgcolor: option.color,
-                fontSize: 11,
+                fontSize: { xs: 10, sm: 11 },
                 fontWeight: 800,
+                flexShrink: 0,
               }}
             >
               {option.emoji}
             </Box>
-            <Typography sx={{ fontSize: 15, fontWeight: 700, color: option.color, flex: 1 }}>
+            <Typography
+              sx={{
+                minWidth: 0,
+                fontSize: { xs: 13, sm: 15 },
+                fontWeight: 700,
+                color: option.color,
+                flex: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               {option.label}
             </Typography>
-            <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
+            <Typography sx={{ fontSize: { xs: 11, sm: 12 }, color: "text.secondary" }}>
               {orderedGrouped[option.value].length}
             </Typography>
           </Box>
-          <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", py: 0.5 }}>
+          <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", py: { xs: 0.25, sm: 0.5 } }}>
             {orderedGrouped[option.value].length === 0 ? (
               <Box
                 sx={{
                   height: "100%",
-                  minHeight: 120,
+                  minHeight: { xs: 56, sm: 120 },
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   color: "text.disabled",
+                  px: 0.8,
+                  textAlign: "center",
                 }}
               >
-                <Typography sx={{ fontSize: 13 }}>没有任务</Typography>
+                <Typography sx={{ fontSize: { xs: 12, sm: 13 } }}>没有任务</Typography>
               </Box>
             ) : (
               orderedGrouped[option.value].map((item) => {
