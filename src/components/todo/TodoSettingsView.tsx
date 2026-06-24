@@ -185,6 +185,9 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
   const [activeCategory, setActiveCategory] = useState<TodoSettingsCategory>("appearance");
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const activeItem = CATEGORY_ITEMS.find((item) => item.id === activeCategory) ?? CATEGORY_ITEMS[0];
+  const shouldRenderSettingsDetail = !isMobileSettings || mobileDetailOpen;
+  const shouldLoadTodoFonts =
+    !isMobileSettings || (mobileDetailOpen && activeCategory === "appearance");
   const [dataBusy, setDataBusy] = useState(false);
   const [dataStatus, setDataStatus] = useState<{
     severity: "success" | "error" | "info";
@@ -244,6 +247,7 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
   }, [availableTodoTimeZoneOptions, pendingTodoTimeZone]);
 
   useEffect(() => {
+    if (!shouldLoadTodoFonts) return;
     let cancelled = false;
     setFontBusy(true);
     setFontError(null);
@@ -262,7 +266,7 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [fontRefreshKey]);
+  }, [fontRefreshKey, shouldLoadTodoFonts]);
 
   useEffect(() => {
     if (activeCategory !== "data") return;
@@ -593,6 +597,8 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
           background: settingsContentBg,
         }}
       >
+        {shouldRenderSettingsDetail && (
+          <>
         <SettingsDragStrip background={settingsContentBg} />
         <Box
           sx={{
@@ -1157,8 +1163,10 @@ export function TodoSettingsView({ isDark }: { isDark: boolean }) {
               </Box>
             </SettingGroup>
           )}
-        </Box>
-        </Box>
+          </Box>
+          </Box>
+          </>
+        )}
       </Box>
     </Box>
   );

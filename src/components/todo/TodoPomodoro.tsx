@@ -35,6 +35,8 @@ import FormatListBulletedRoundedIcon from "@mui/icons-material/FormatListBullete
 import ViewAgendaRoundedIcon from "@mui/icons-material/ViewAgendaRounded";
 import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
+import RadioButtonCheckedRoundedIcon from "@mui/icons-material/RadioButtonCheckedRounded";
+import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 
 import { useTodoStore } from "./useTodoStore";
 import {
@@ -248,6 +250,7 @@ export function TodoPomodoro({
     mode === "pomodoro"
       ? Math.min(1, liveElapsedMs / durationMs)
       : (liveElapsedMs % 60000) / 60000;
+  const showTimerSecondaryControls = running || liveElapsedMs > 0;
 
   useEffect(() => {
     savePomodoroTimerState({
@@ -634,21 +637,47 @@ export function TodoPomodoro({
         }}
       >
         <Button
-          variant="text"
+          variant="outlined"
           onClick={(event) => {
             setTaskQuery("");
             setTaskPickerAnchor(event.currentTarget);
           }}
+          startIcon={<RadioButtonCheckedRoundedIcon />}
+          endIcon={<ChevronRightRoundedIcon />}
           sx={{
-            width: { xs: "100%", sm: "auto" },
+            width: "auto",
             maxWidth: { xs: 360, sm: 320 },
-            color: "text.secondary",
-            fontSize: 14,
-            fontWeight: 600,
+            minWidth: 132,
+            height: { xs: 42, sm: 38 },
+            px: { xs: 1.8, sm: 1.6 },
+            borderRadius: 999,
+            borderColor: alpha(theme.palette.primary.main, isDark ? 0.42 : 0.34),
+            color: activeItem ? "text.primary" : "text.secondary",
+            bgcolor: alpha(theme.palette.primary.main, isDark ? 0.1 : 0.055),
+            boxShadow: isDark
+              ? "0 10px 24px rgba(0, 0, 0, 0.18)"
+              : "0 10px 24px rgba(37, 99, 235, 0.08)",
+            fontSize: { xs: 14, sm: 13 },
+            fontWeight: 700,
             textTransform: "none",
-            "& .MuiButton-endIcon": { ml: 0.2 },
+            "& .MuiButton-startIcon": {
+              mr: 0.8,
+              color: "primary.main",
+              "& svg": { fontSize: 18 },
+            },
+            "& .MuiButton-endIcon": {
+              ml: 0.4,
+              color: "text.secondary",
+              "& svg": { fontSize: 18 },
+            },
+            "&:hover": {
+              borderColor: alpha(theme.palette.primary.main, isDark ? 0.62 : 0.52),
+              bgcolor: alpha(theme.palette.primary.main, isDark ? 0.16 : 0.09),
+              boxShadow: isDark
+                ? "0 12px 28px rgba(0, 0, 0, 0.24)"
+                : "0 12px 28px rgba(37, 99, 235, 0.12)",
+            },
           }}
-          endIcon={<Box component="span">›</Box>}
         >
           <Box
             component="span"
@@ -706,41 +735,67 @@ export function TodoPomodoro({
             gap: 1,
           }}
         >
+          {showTimerSecondaryControls && (
+            <Tooltip title="重置">
+              <span style={{ flex: 1, minWidth: 0, display: "flex" }}>
+                <IconButton
+                  disabled={running && liveElapsedMs <= 0}
+                  onClick={resetTimer}
+                  sx={{
+                    width: "100%",
+                    height: { xs: 54, sm: 48 },
+                    borderRadius: 1,
+                    color: "text.secondary",
+                    bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.06 : 0.04),
+                    "&:hover": {
+                      bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.1 : 0.07),
+                    },
+                  }}
+                >
+                  <ReplayRoundedIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
           <Button
             variant="contained"
             size="large"
             startIcon={running ? <PauseRoundedIcon /> : <PlayArrowRoundedIcon />}
             onClick={toggleRunning}
             sx={{
-              flex: { xs: 1, sm: "0 0 auto" },
-              minWidth: { xs: 0, sm: 128 },
+              flex: showTimerSecondaryControls ? 3 : 1,
+              minWidth: 0,
+              height: { xs: 54, sm: 48 },
               borderRadius: 1,
+              fontSize: { xs: 16, sm: 15 },
+              "& .MuiButton-startIcon": { mr: 0.9 },
             }}
           >
             {running ? "暂停" : liveElapsedMs > 0 ? "继续" : "开始"}
           </Button>
-          <Tooltip title="重置">
-            <span>
-              <IconButton
-                disabled={running && liveElapsedMs <= 0}
-                onClick={resetTimer}
-                sx={{ width: 42, height: 42, borderRadius: 1 }}
-              >
-                <ReplayRoundedIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title={mode === "pomodoro" ? "提前结束" : "完成记录"}>
-            <span>
-              <IconButton
-                disabled={liveElapsedMs < 1000}
-                onClick={() => finishSession()}
-                sx={{ width: 42, height: 42, borderRadius: 1 }}
-              >
-                <StopRoundedIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
+          {showTimerSecondaryControls && (
+            <Tooltip title={mode === "pomodoro" ? "提前结束" : "完成记录"}>
+              <span style={{ flex: 1, minWidth: 0, display: "flex" }}>
+                <IconButton
+                  disabled={liveElapsedMs < 1000}
+                  onClick={() => finishSession()}
+                  sx={{
+                    width: "100%",
+                    height: { xs: 54, sm: 48 },
+                    borderRadius: 1,
+                    color: "text.secondary",
+                    bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.06 : 0.04),
+                    "&:hover": {
+                      bgcolor: alpha(theme.palette.error.main, isDark ? 0.18 : 0.08),
+                      color: "error.main",
+                    },
+                  }}
+                >
+                  <StopRoundedIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
         </Box>
 
         <TaskPickerPopover

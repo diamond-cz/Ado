@@ -6,6 +6,7 @@
 // `scheduleSave` inside `useTodoStore`.
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -21,6 +22,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Drawer,
   IconButton,
   Tooltip,
   Typography,
@@ -35,7 +37,6 @@ import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import PushPinRoundedIcon from "@mui/icons-material/PushPinRounded";
 import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import GridViewRoundedIcon from "@mui/icons-material/GridViewRounded";
 import TimerRoundedIcon from "@mui/icons-material/TimerRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
@@ -51,7 +52,6 @@ import {
 import {
   SortableContext,
   arrayMove,
-  horizontalListSortingStrategy,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -65,9 +65,11 @@ import { QuickAddTodoInput, TodoDetail } from "./TodoDetail";
 import { TodoEditor } from "./TodoEditor";
 import { TodoCalendar } from "./TodoCalendar";
 import { TodoPomodoro } from "./TodoPomodoro";
+import { QuadrantView } from "./QuadrantView";
 import { TodoQuickSearch } from "./TodoQuickSearch";
 import { TodoSettingsView } from "./TodoSettingsView";
 import { TodoIdlePaperOverlay } from "./TodoIdlePaperOverlay";
+import type { TodoItemContextTarget } from "./TodoItem";
 import { listTodoFonts } from "./todoIpc";
 import {
   ensureTodoFontsRegistered,
@@ -291,6 +293,8 @@ export default function TodoPanel() {
   );
   const [navRailOrder, setNavRailOrder] = useState<TodoRailAction[]>(readNavRailOrder);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [quickCreate, setQuickCreate] = useState<TodoQuickCreateRequest | null>(null);
   const [pomodoroItemId, setPomodoroItemId] = useState<string | null>(null);
   const [pendingPomodoroSwitch, setPendingPomodoroSwitch] = useState<{
@@ -387,6 +391,7 @@ export default function TodoPanel() {
   );
 
   const openTasksView = useCallback(() => {
+    setSearchOpen(false);
     setActiveView("tasks");
     if (selectedFilter.kind === "calendar" || selectedFilter.kind === "quadrant") {
       setSelectedFilter({ kind: "today" });
@@ -394,26 +399,53 @@ export default function TodoPanel() {
   }, [selectedFilter.kind, setSelectedFilter]);
 
   const openCalendarView = useCallback(() => {
+    setSearchOpen(false);
     setActiveView("calendar");
     setSelectedFilter({ kind: "calendar" });
   }, [setSelectedFilter]);
 
   const openQuadrantView = useCallback(() => {
+    setSearchOpen(false);
     setActiveView("quadrant");
     setSelectedFilter({ kind: "quadrant" });
   }, [setSelectedFilter]);
 
   const openPomodoroView = useCallback(() => {
+    setSearchOpen(false);
     setActiveView("pomodoro");
   }, []);
 
   const openSettingsView = useCallback(() => {
+    setSearchOpen(false);
     setActiveView("settings");
   }, []);
 
   const openTodoSearch = useCallback(() => {
+    if (searchOpen) {
+      setSearchFocusRequest((value) => value + 1);
+      return;
+    }
     setSearchOpen(true);
+  }, [searchOpen]);
+
+  const openMobileSidebar = useCallback(() => {
+    setMobileSidebarOpen(true);
   }, []);
+
+  const openTodoContextTarget = useCallback(
+    (target: TodoItemContextTarget) => {
+      if (target.kind === "folder") {
+        setSelectedFilter({ kind: "folder", id: target.id });
+        return;
+      }
+      if (target.kind === "list") {
+        setSelectedFilter({ kind: "list", id: target.id });
+        return;
+      }
+      setSelectedFilter({ kind: "list", id: target.listId });
+    },
+    [setSelectedFilter],
+  );
 
   const openQuickCreateTask = useCallback(() => {
     setQuickCreate({ kind: "task" });
@@ -625,6 +657,12 @@ export default function TodoPanel() {
   }, [hydrate]);
 
   useEffect(() => {
+    if (isMobileLayout) {
+      setMobileSidebarOpen(false);
+    }
+  }, [isMobileLayout, selectedFilter]);
+
+  useEffect(() => {
     let cancelled = false;
     listTodoFonts()
       .then((fonts) => {
@@ -759,6 +797,21 @@ export default function TodoPanel() {
         "&.todo-scrollbar-visible::-webkit-scrollbar-thumb, & .todo-scrollbar-visible::-webkit-scrollbar-thumb": {
           backgroundColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.34),
         },
+        "&::before": {
+          content: '""',
+          display: { xs: "block", sm: "none" },
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: "max(env(safe-area-inset-top), 28px)",
+          pointerEvents: "none",
+          zIndex: 60,
+          background: isDark
+            ? "rgba(15, 23, 42, 0.82)"
+            : "linear-gradient(180deg, rgba(71, 85, 105, 0.96), rgba(100, 116, 139, 0.9))",
+          borderBottom: `1px solid ${alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.08 : 0.12)}`,
+        },
       }}
     >
       <Box
@@ -766,7 +819,7 @@ export default function TodoPanel() {
           flex: 1,
           minHeight: 0,
           display: "flex",
-          flexDirection: { xs: "column-reverse", sm: "row" },
+          flexDirection: { xs: "column", sm: "row" },
         }}
       >
         <TodoNavRail
@@ -775,6 +828,7 @@ export default function TodoPanel() {
           background={railBg}
           activeIconColor={railActiveIconColor}
           activeView={activeView}
+          searchActive={searchOpen}
           order={navRailOrder}
           searchShortcut={todoSearchShortcutLabel}
           pomodoroRunning={pomodoroRunning}
@@ -788,131 +842,150 @@ export default function TodoPanel() {
         />
         <Box
           sx={{
+            order: { xs: 1, sm: 0 },
             flex: 1,
             minWidth: 0,
             minHeight: 0,
             height: "100%",
+            boxSizing: "border-box",
+            pb: { xs: "calc(58px + env(safe-area-inset-bottom))", sm: 0 },
           }}
         >
-          {settingsMode ? (
-            <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
-              <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                <TodoSettingsView isDark={isDark} />
-              </Box>
+          <Box
+            sx={{
+              height: "100%",
+              minHeight: 0,
+              display: settingsMode ? "flex" : "none",
+              flexDirection: "column",
+            }}
+          >
+            <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+              <TodoSettingsView isDark={isDark} />
             </Box>
-          ) : pomodoroMode ? (
-            <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
-              <TitleDragStrip background={secondaryColumnBg} />
-              <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-              <TodoPomodoro
-                isDark={isDark}
-                surfaceBg={secondaryColumnBg}
-                primaryPaneBg={secondaryColumnBg}
-                secondaryPaneBg={secondaryColumnBg}
-                activeItemId={pomodoroItemId}
-                onActiveItemIdChange={setPomodoroItemId}
-              />
+          </Box>
+          {!settingsMode &&
+            (pomodoroMode ? (
+              <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
+                <TitleDragStrip background={secondaryColumnBg} />
+                <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                <TodoPomodoro
+                  isDark={isDark}
+                  surfaceBg={secondaryColumnBg}
+                  primaryPaneBg={secondaryColumnBg}
+                  secondaryPaneBg={secondaryColumnBg}
+                  activeItemId={pomodoroItemId}
+                  onActiveItemIdChange={setPomodoroItemId}
+                />
+                </Box>
               </Box>
-            </Box>
-          ) : calendarMode ? (
-            <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", background: secondaryColumnBg }}>
-              <TitleDragStrip background={secondaryColumnBg} />
-              <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                <TodoCalendar isDark={isDark} />
+            ) : calendarMode ? (
+              <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", background: secondaryColumnBg }}>
+                <TitleDragStrip background={secondaryColumnBg} />
+                <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                  <TodoCalendar isDark={isDark} />
+                </Box>
               </Box>
-            </Box>
-          ) : isMobileLayout ? (
-            <Box
-              sx={{
-                height: "100%",
-                minHeight: 0,
-                background: currentDetailBg,
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                <TodoDetail isDark={isDark} />
-              </Box>
-            </Box>
-          ) : (
-              <Allotment
-                key={quadrantMode ? "quadrant" : "detail"}
-                className="todo-main-allotment"
-                defaultSizes={quadrantMode ? readContentSplitSizes() : readSplitSizes()}
-                onChange={(sizes) => {
-                  if (quadrantMode) {
-                    saveContentSplitSizes(sizes);
-                    return;
-                  }
-                  if (sizes.length !== 3) return;
-                  try {
-                    localStorage.setItem(SPLIT_KEY, JSON.stringify(sizes));
-                  } catch {
-                    /* localStorage may be disabled */
-                  }
+            ) : isMobileLayout ? (
+              <Box
+                sx={{
+                  height: "100%",
+                  minHeight: 0,
+                  background: currentDetailBg,
+                  display: "flex",
+                  flexDirection: "column",
                 }}
               >
-                {!quadrantMode && (
-                  <Allotment.Pane minSize={160} preferredSize={200}>
+                <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                  <TodoDetail isDark={isDark} onOpenMobileSidebar={openMobileSidebar} />
+                </Box>
+              </Box>
+            ) : (
+                <Allotment
+                  key={quadrantMode ? "quadrant" : "detail"}
+                  className="todo-main-allotment"
+                  defaultSizes={quadrantMode ? readContentSplitSizes() : readSplitSizes()}
+                  onChange={(sizes) => {
+                    if (quadrantMode) {
+                      saveContentSplitSizes(sizes);
+                      return;
+                    }
+                    if (sizes.length !== 3) return;
+                    try {
+                      localStorage.setItem(SPLIT_KEY, JSON.stringify(sizes));
+                    } catch {
+                      /* localStorage may be disabled */
+                    }
+                  }}
+                >
+                  {!quadrantMode && (
+                    <Allotment.Pane minSize={160} preferredSize={200}>
+                      <Box
+                        sx={{
+                          height: "100%",
+                          background: secondaryColumnBg,
+                          display: "flex",
+                          flexDirection: "column",
+                          minHeight: 0,
+                        }}
+                      >
+                        <TitleDragStrip background={secondaryColumnBg} />
+                        <Box
+                          sx={{
+                            flex: 1,
+                            minHeight: 0,
+                            overflow: "hidden",
+                            display: "flex",
+                            flexDirection: "column",
+                          }}
+                        >
+                          <TodoSidebar isDark={isDark} />
+                        </Box>
+                      </Box>
+                    </Allotment.Pane>
+                  )}
+                  <Allotment.Pane minSize={260} preferredSize={quadrantMode ? 720 : 360}>
                     <Box
                       sx={{
                         height: "100%",
-                        background: secondaryColumnBg,
+                        background: currentDetailBg,
                         display: "flex",
                         flexDirection: "column",
                         minHeight: 0,
                       }}
                     >
-                      <TitleDragStrip background={secondaryColumnBg} />
+                      <TitleDragStrip background={currentDetailBg} />
+                      <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                        {quadrantMode ? (
+                          <QuadrantView
+                            isDark={isDark}
+                            onOpenContextTarget={openTodoContextTarget}
+                          />
+                        ) : (
+                          <TodoDetail isDark={isDark} />
+                        )}
+                      </Box>
+                    </Box>
+                  </Allotment.Pane>
+                  {!quadrantMode && (
+                    <Allotment.Pane minSize={260} preferredSize={360}>
                       <Box
                         sx={{
-                          flex: 1,
+                          height: "100%",
+                          background: currentEditorBg,
                           minHeight: 0,
-                          overflow: "hidden",
                           display: "flex",
                           flexDirection: "column",
                         }}
                       >
-                        <TodoSidebar isDark={isDark} />
+                        <TitleDragStrip background={currentEditorBg} />
+                        <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                          <TodoEditor isDark={isDark} />
+                        </Box>
                       </Box>
-                    </Box>
-                  </Allotment.Pane>
-                )}
-                <Allotment.Pane minSize={260} preferredSize={quadrantMode ? 720 : 360}>
-                  <Box
-                    sx={{
-                      height: "100%",
-                      background: currentDetailBg,
-                      display: "flex",
-                      flexDirection: "column",
-                      minHeight: 0,
-                    }}
-                  >
-                    <TitleDragStrip background={currentDetailBg} />
-                    <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                      <TodoDetail isDark={isDark} />
-                    </Box>
-                  </Box>
-                </Allotment.Pane>
-                <Allotment.Pane minSize={300}>
-                  <Box
-                    sx={{
-                      height: "100%",
-                      minHeight: 0,
-                      background: currentEditorBg,
-                      display: "flex",
-                      flexDirection: "column",
-                    }}
-                  >
-                    <TitleDragStrip background={currentEditorBg} />
-                    <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                      <TodoEditor isDark={isDark} />
-                    </Box>
-                  </Box>
-                </Allotment.Pane>
-              </Allotment>
-            )}
+                    </Allotment.Pane>
+                  )}
+                </Allotment>
+              ))}
         </Box>
       </Box>
       <TodoIdlePaperOverlay
@@ -921,6 +994,44 @@ export default function TodoPanel() {
         lightEffectMode={todoIdlePaperLightEffect}
       />
       <WindowControls isDark={isDark} />
+      <Drawer
+        anchor="left"
+        open={mobileSidebarOpen}
+        onClose={() => setMobileSidebarOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        slotProps={{
+          backdrop: {
+            sx: {
+              bgcolor: alpha("#020617", isDark ? 0.48 : 0.38),
+            },
+          },
+          paper: {
+            sx: {
+              display: { xs: "flex", sm: "none" },
+              width: "min(84vw, 320px)",
+              maxWidth: 340,
+              height: "100dvh",
+              boxSizing: "border-box",
+              pt: "max(env(safe-area-inset-top), 28px)",
+              pb: "max(env(safe-area-inset-bottom), 12px)",
+              px: 1,
+              borderRight: 0,
+              borderTopRightRadius: 18,
+              borderBottomRightRadius: 18,
+              overflow: "hidden",
+              bgcolor: isDark ? "#172033" : "#e7f3f3",
+              color: "text.primary",
+              boxShadow: isDark
+                ? "18px 0 42px rgba(0, 0, 0, 0.44)"
+                : "18px 0 42px rgba(15, 23, 42, 0.18)",
+            },
+          },
+        }}
+      >
+        <Box sx={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>
+          <TodoSidebar isDark={isDark} />
+        </Box>
+      </Drawer>
       <Dialog
         open={quickCreateOpen}
         onClose={() => setQuickCreate(null)}
@@ -971,6 +1082,7 @@ export default function TodoPanel() {
       <TodoQuickSearch
         isDark={isDark}
         open={searchOpen}
+        focusRequest={searchFocusRequest}
         onClose={() => setSearchOpen(false)}
         onNavigate={() => setActiveView("tasks")}
         onStartPomodoro={requestPomodoroFocus}
@@ -1023,12 +1135,13 @@ function TitleDragStrip({ background }: { background: string }) {
   );
 }
 
-function TodoNavRail({
+const TodoNavRail = memo(function TodoNavRail({
   isDark,
   mobile,
   background,
   activeIconColor,
   activeView,
+  searchActive,
   order,
   searchShortcut,
   pomodoroRunning,
@@ -1045,6 +1158,7 @@ function TodoNavRail({
   background: string;
   activeIconColor: string;
   activeView: TodoRailView;
+  searchActive: boolean;
   order: TodoRailAction[];
   searchShortcut?: string;
   pomodoroRunning: boolean;
@@ -1059,9 +1173,9 @@ function TodoNavRail({
   const todoCheckboxShape = useStore((s) => s.appSettings.todoCheckboxShape);
   const tasksIcon =
     todoCheckboxShape === "circle" ? (
-      <CheckCircleRoundedIcon sx={{ fontSize: 21 }} />
+      <CheckCircleRoundedIcon sx={{ fontSize: 22 }} />
     ) : (
-      <CheckBoxIcon sx={{ fontSize: 21 }} />
+      <CheckBoxIcon sx={{ fontSize: 22 }} />
     );
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1092,32 +1206,33 @@ function TodoNavRail({
     () => ({
       tasks: {
         label: "待办",
-        active: activeView === "tasks",
+        active: !searchActive && activeView === "tasks",
         icon: tasksIcon,
         onClick: onOpenTasks,
       },
       calendar: {
         label: "日历",
-        active: activeView === "calendar",
-        icon: <CalendarMonthIcon sx={{ fontSize: 21 }} />,
+        active: !searchActive && activeView === "calendar",
+        icon: <CalendarRailIcon />,
         onClick: onOpenCalendar,
       },
       quadrant: {
         label: "四象限",
-        active: activeView === "quadrant",
-        icon: <GridViewRoundedIcon sx={{ fontSize: 21 }} />,
+        active: !searchActive && activeView === "quadrant",
+        icon: <GridViewRoundedIcon sx={{ fontSize: 22 }} />,
         onClick: onOpenQuadrant,
       },
       pomodoro: {
         label: "番茄专注",
-        active: activeView === "pomodoro",
-        icon: <TimerRoundedIcon sx={{ fontSize: 21 }} />,
+        active: !searchActive && activeView === "pomodoro",
+        icon: <TimerRoundedIcon sx={{ fontSize: 22 }} />,
         highlightColor: pomodoroRunning ? POMODORO_RUNNING_ICON_COLOR : undefined,
         onClick: onOpenPomodoro,
       },
       search: {
         label: "搜索",
-        icon: <SearchRoundedIcon sx={{ fontSize: 21 }} />,
+        active: searchActive,
+        icon: <SearchRoundedIcon sx={{ fontSize: 22 }} />,
         onClick: onOpenSearch,
       },
     }),
@@ -1129,6 +1244,7 @@ function TodoNavRail({
       onOpenSearch,
       onOpenTasks,
       pomodoroRunning,
+      searchActive,
       tasksIcon,
     ],
   );
@@ -1166,9 +1282,18 @@ function TodoNavRail({
   return (
     <Box
       sx={{
+        order: { xs: 2, sm: 0 },
+        position: { xs: "fixed", sm: "static" },
+        left: { xs: 0, sm: "auto" },
+        right: { xs: 0, sm: "auto" },
+        bottom: { xs: 0, sm: "auto" },
+        zIndex: { xs: 80, sm: "auto" },
         height: { xs: "calc(58px + env(safe-area-inset-bottom))", sm: "100%" },
         width: { xs: "100%", sm: 48 },
+        boxSizing: "border-box",
         flexShrink: 0,
+        transform: { xs: "translateZ(0)", sm: "none" },
+        contain: { xs: "layout paint style", sm: "none" },
         pt: { xs: 0.5, sm: 0 },
         pb: { xs: "max(8px, env(safe-area-inset-bottom))", sm: 1.2 },
         px: { xs: 0.5, sm: 0 },
@@ -1184,44 +1309,62 @@ function TodoNavRail({
       }}
     >
       {!mobile && <TitleDragStrip background={background} />}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={() => {
-          suppressNextClickRef.current = true;
-        }}
-        onDragCancel={releaseSuppressedClick}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={normalizedOrder}
-          strategy={mobile ? horizontalListSortingStrategy : verticalListSortingStrategy}
+      {mobile ? (
+        normalizedOrder.map((action) => {
+          const config = railActions[action];
+          return (
+            <RailButton
+              key={action}
+              label={config.label}
+              active={config.active}
+              icon={config.icon}
+              activeIconColor={activeIconColor}
+              highlightColor={config.highlightColor}
+              shortcut={shortcuts.get(action)}
+              secondaryShortcut={action === "search" ? searchShortcut : undefined}
+              onClick={config.onClick}
+              isDark={isDark}
+              mobile
+            />
+          );
+        })
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={() => {
+            suppressNextClickRef.current = true;
+          }}
+          onDragCancel={releaseSuppressedClick}
+          onDragEnd={handleDragEnd}
         >
-          {normalizedOrder.map((action) => {
-            const config = railActions[action];
-            return (
-              <SortableRailButton
-                key={action}
-                id={action}
-                label={config.label}
-                active={config.active}
-                icon={config.icon}
-                activeIconColor={activeIconColor}
-                highlightColor={config.highlightColor}
-                shortcut={shortcuts.get(action)}
-                secondaryShortcut={action === "search" ? searchShortcut : undefined}
-                onClick={() => runRailAction(action)}
-                isDark={isDark}
-                mobile={mobile}
-              />
-            );
-          })}
-        </SortableContext>
-      </DndContext>
+          <SortableContext items={normalizedOrder} strategy={verticalListSortingStrategy}>
+            {normalizedOrder.map((action) => {
+              const config = railActions[action];
+              return (
+                <SortableRailButton
+                  key={action}
+                  id={action}
+                  label={config.label}
+                  active={config.active}
+                  icon={config.icon}
+                  activeIconColor={activeIconColor}
+                  highlightColor={config.highlightColor}
+                  shortcut={shortcuts.get(action)}
+                  secondaryShortcut={action === "search" ? searchShortcut : undefined}
+                  onClick={() => runRailAction(action)}
+                  isDark={isDark}
+                  mobile={mobile}
+                />
+              );
+            })}
+          </SortableContext>
+        </DndContext>
+      )}
       <Box sx={{ flex: 1, display: { xs: "none", sm: "block" } }} />
       <RailButton
         label="设置"
-        active={activeView === "settings"}
+        active={!searchActive && activeView === "settings"}
         icon={<SettingsSvgIcon />}
         activeIconColor={activeIconColor}
         onClick={onOpenSettings}
@@ -1230,7 +1373,7 @@ function TodoNavRail({
       />
     </Box>
   );
-}
+});
 
 function SettingsSvgIcon() {
   return (
@@ -1238,7 +1381,7 @@ function SettingsSvgIcon() {
       component="svg"
       viewBox="0 0 24 24"
       aria-hidden
-      sx={{ width: 21, height: 21, display: "block" }}
+      sx={{ width: 22, height: 22, display: "block" }}
     >
       <path
         d="M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Zm7.35 3.75c0-.35-.03-.69-.08-1.02l2.08-1.62-1.98-3.43-2.45.98a7.75 7.75 0 0 0-1.76-1.02L14.8 3.25h-5.6l-.36 2.64c-.63.25-1.22.59-1.76 1.02l-2.45-.98-1.98 3.43 2.08 1.62a7.01 7.01 0 0 0 0 2.04l-2.08 1.62 1.98 3.43 2.45-.98c.54.43 1.13.77 1.76 1.02l.36 2.64h5.6l.36-2.64c.63-.25 1.22-.59 1.76-1.02l2.45.98 1.98-3.43-2.08-1.62c.05-.33.08-.67.08-1.02Z"
@@ -1248,6 +1391,46 @@ function SettingsSvgIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </Box>
+  );
+}
+
+function CalendarRailIcon() {
+  const day = new Date().getDate();
+  return (
+    <Box
+      aria-hidden
+      sx={{
+        width: 24,
+        height: 24,
+        borderRadius: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "relative",
+        color: "currentColor",
+        border: "2px solid currentColor",
+        borderTopWidth: 5,
+        boxSizing: "border-box",
+        fontSize: day >= 10 ? 10.5 : 12,
+        fontWeight: 850,
+        lineHeight: 1,
+        "&::before, &::after": {
+          content: '""',
+          position: "absolute",
+          top: -6,
+          width: 3,
+          height: 5,
+          borderRadius: 999,
+          bgcolor: "currentColor",
+        },
+        "&::before": { left: 5 },
+        "&::after": { right: 5 },
+      }}
+    >
+      <Box component="span" sx={{ transform: "translateY(1px)" }}>
+        {day}
+      </Box>
     </Box>
   );
 }
@@ -1330,16 +1513,18 @@ function RailButton({
       : shortcut || secondaryShortcut;
   const tooltipTitle = shortcutText ? `${label} (${shortcutText})` : label;
 
-  return (
-    <Tooltip title={tooltipTitle} placement={mobile ? "top" : "right"} arrow>
-      <span ref={rootRef} style={{ display: "inline-flex", ...rootStyle }}>
-        <IconButton
+  const button = (
+    <span ref={rootRef} style={{ display: "inline-flex", ...rootStyle }}>
+      <IconButton
           {...dragAttributes}
           {...dragListeners}
           size="small"
           disabled={disabled}
           aria-label={label}
           onClick={onClick}
+          disableRipple
+          disableFocusRipple
+          disableTouchRipple
           sx={{
             width: mobile ? 52 : 50,
             height: mobile ? 48 : 40,
@@ -1354,6 +1539,14 @@ function RailButton({
             "& svg": {
               border: 0,
               boxShadow: "none",
+              width: 22,
+              height: 22,
+              fontSize: 22,
+              display: "block",
+              flexShrink: 0,
+            },
+            "& > *": {
+              flexShrink: 0,
             },
             "&:active": {
               cursor: dragEnabled && !disabled ? "grabbing" : "pointer",
@@ -1366,10 +1559,17 @@ function RailButton({
               boxShadow: "none",
             },
           }}
-        >
-          {icon}
-        </IconButton>
-      </span>
+      >
+        {icon}
+      </IconButton>
+    </span>
+  );
+
+  if (mobile) return button;
+
+  return (
+    <Tooltip title={tooltipTitle} placement="right" arrow>
+      {button}
     </Tooltip>
   );
 }
