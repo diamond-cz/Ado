@@ -3366,84 +3366,6 @@ export function TodoCalendar({
     </Box>
   );
 
-  const renderMobileWeekHeader = (dates: Date[]) => (
-    <Box
-      sx={{
-        flexShrink: 0,
-        display: "grid",
-        gridTemplateColumns: `repeat(${dates.length}, minmax(44px, 1fr))`,
-        px: dates.length > 7 ? 0 : 4.5,
-        pb: 1.2,
-        gap: 0.35,
-        overflowX: dates.length > 7 ? "auto" : "visible",
-        scrollbarWidth: "none",
-        "&::-webkit-scrollbar": { display: "none" },
-      }}
-    >
-      {dates.map((date) => {
-        const key = localDayKey(date);
-        const selected = key === selectedDayKey;
-        const today = key === localDayKey(new Date());
-        const meta = todoShowChineseCalendar ? getChineseCalendarMeta(date) : null;
-        const holidayRest = Boolean(meta?.isHolidayRestDay);
-        const weekend = Boolean(meta?.isWeekend);
-        return (
-          <Box
-            key={key}
-            component="button"
-            type="button"
-            onClick={() => setCalendarDate(new Date(date))}
-            sx={{
-              minWidth: 44,
-              p: 0,
-              border: 0,
-              bgcolor: "transparent",
-              color: "text.primary",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 0.7,
-              font: "inherit",
-              WebkitTapHighlightColor: "transparent",
-              appearance: "none",
-              outline: "none",
-              userSelect: "none",
-              "&:focus, &:focus-visible, &:active": { outline: "none", bgcolor: "transparent" },
-            }}
-          >
-            <Typography sx={{ fontSize: 12, color: "text.secondary", fontWeight: 650 }}>
-              {WEEKDAY_LABELS[date.getDay()]}
-            </Typography>
-            <Box
-              sx={{
-                width: 36,
-                height: 34,
-                borderRadius: 2,
-                display: "grid",
-                placeItems: "center",
-                color: today
-                  ? "#fff"
-                  : weekend || holidayRest || selected
-                    ? "primary.main"
-                    : "text.primary",
-                border: selected && !today ? `1.5px solid ${theme.palette.primary.main}` : "1.5px solid transparent",
-                bgcolor: today
-                  ? theme.palette.primary.main
-                  : holidayRest
-                    ? alpha(theme.palette.primary.main, isDark ? 0.16 : 0.09)
-                    : "transparent",
-                fontSize: 14,
-                fontWeight: selected || today ? 850 : 700,
-              }}
-            >
-              {date.getDate()}
-            </Box>
-          </Box>
-        );
-      })}
-    </Box>
-  );
-
   const renderMobileMonthGrid = (expanded: boolean) => {
     const cells = expanded
       ? buildCalendarGridCells(calendarDate.getFullYear(), calendarDate.getMonth(), todoFirstDay)
@@ -3789,13 +3711,23 @@ export function TodoCalendar({
     const dates = getMobileTimeGridDates();
     const headerDates =
       calendarViewType === "timeGridDay" ? buildWeekCells(calendarDate, todoFirstDay) : dates;
+    const isSingleDayTimeGrid = dates.length === 1;
+    const isStandardWeekTimeGrid = calendarViewType === "dayGridWeek" && dates.length === 7;
+    const mobileTimeAxisWidth = isStandardWeekTimeGrid ? 34 : 42;
     const totalHeight =
       Math.max(1, mobileTimeRange.endHour - mobileTimeRange.startHour + 1) *
       MOBILE_TIME_HOUR_HEIGHT;
     const gridColumns =
-      dates.length === 1
+      isSingleDayTimeGrid
         ? "minmax(0, 1fr)"
-        : `repeat(${dates.length}, minmax(${dates.length > 3 ? 82 : 92}px, 1fr))`;
+        : isStandardWeekTimeGrid
+          ? "repeat(7, minmax(0, 1fr))"
+          : `repeat(${dates.length}, minmax(${dates.length > 3 ? 82 : 92}px, 1fr))`;
+    const timeGridMinWidth = isStandardWeekTimeGrid
+      ? "100%"
+      : dates.length > 3
+        ? dates.length * 82 + mobileTimeAxisWidth
+        : "100%";
     return (
       <Box
         onTouchStart={handleMobileCalendarTouchStart}
@@ -3805,17 +3737,90 @@ export function TodoCalendar({
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
-          px: 2.1,
+          px: isStandardWeekTimeGrid ? 1.45 : 2.1,
           pb: 2,
-          bgcolor: isDark ? "#0f172a" : "#f5f9fc",
+          bgcolor: isDark ? "#0f172a" : "#f7fafc",
           overflow: "hidden",
           touchAction: "pan-x pan-y",
         }}
       >
         {renderMobileHeader(`${calendarDate.getMonth() + 1}月`)}
-        {renderMobileWeekHeader(headerDates)}
+        <Box
+          sx={{
+            flexShrink: 0,
+            display: "grid",
+            gridTemplateColumns: `${mobileTimeAxisWidth}px ${
+              calendarViewType === "timeGridDay"
+                ? "repeat(7, minmax(0, 1fr))"
+                : gridColumns
+            }`,
+            minWidth:
+              calendarViewType === "timeGridDay"
+                ? "100%"
+                : timeGridMinWidth,
+            pb: 1,
+            overflowX: isStandardWeekTimeGrid ? "visible" : "auto",
+            scrollbarWidth: "none",
+            "&::-webkit-scrollbar": { display: "none" },
+          }}
+        >
+          <Box />
+          {headerDates.map((date) => {
+            const key = localDayKey(date);
+            const selected = key === selectedDayKey;
+            const today = key === localDayKey(new Date());
+            return (
+              <Box
+                key={key}
+                component="button"
+                type="button"
+                onClick={() => setCalendarDate(new Date(date))}
+                sx={{
+                  minWidth: 0,
+                  p: 0,
+                  border: 0,
+                  bgcolor: "transparent",
+                  color: "text.primary",
+                  display: "grid",
+                  justifyItems: "center",
+                  gap: 0.45,
+                  font: "inherit",
+                  WebkitTapHighlightColor: "transparent",
+                  appearance: "none",
+                  outline: "none",
+                  userSelect: "none",
+                  "&:focus, &:focus-visible, &:active": { outline: "none", bgcolor: "transparent" },
+                }}
+              >
+                <Typography sx={{ fontSize: 11.5, color: "text.secondary", fontWeight: 700 }}>
+                  {WEEKDAY_LABELS[date.getDay()]}
+                </Typography>
+                <Box
+                  sx={{
+                    minWidth: 24,
+                    height: 24,
+                    px: 0.55,
+                    borderRadius: 999,
+                    display: "grid",
+                    placeItems: "center",
+                    color: today ? "#fff" : selected ? "primary.main" : "text.primary",
+                    bgcolor: today
+                      ? theme.palette.primary.main
+                      : selected
+                        ? alpha(theme.palette.primary.main, isDark ? 0.22 : 0.1)
+                        : "transparent",
+                    fontSize: 13,
+                    fontWeight: selected || today ? 850 : 720,
+                  }}
+                >
+                  {date.getDate()}
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
         <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", pb: 10 }}>
-          <Box sx={{ display: "grid", gridTemplateColumns: `42px ${gridColumns}`, minWidth: dates.length > 3 ? dates.length * 82 + 42 : "100%" }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: `${mobileTimeAxisWidth}px ${gridColumns}`, minWidth: timeGridMinWidth }}>
             <Box sx={{ position: "relative", height: totalHeight }}>
               {mobileTimeRange.hours.map((hour, index) => (
                 <Typography
@@ -3824,7 +3829,8 @@ export function TodoCalendar({
                     position: "absolute",
                     top: index * MOBILE_TIME_HOUR_HEIGHT + 2,
                     left: 0,
-                    fontSize: 12,
+                    fontSize: isStandardWeekTimeGrid ? 10.5 : 12,
+                    fontWeight: 700,
                     color: "text.disabled",
                   }}
                 >
@@ -3843,8 +3849,15 @@ export function TodoCalendar({
                 sx={{
                   position: "relative",
                   height: totalHeight,
-                  borderLeft: `1px solid ${alpha(isDark ? "#f8fafc" : "#0f172a", 0.06)}`,
-                  backgroundImage: `linear-gradient(to bottom, ${alpha(isDark ? "#f8fafc" : "#0f172a", 0.07)} 1px, transparent 1px)`,
+                  borderLeft: `1px solid ${alpha(
+                    isDark ? "#f8fafc" : "#0f172a",
+                    isStandardWeekTimeGrid ? 0.045 : 0.06,
+                  )}`,
+                  backgroundColor: isDark ? alpha("#f8fafc", 0.015) : alpha("#fff", 0.72),
+                  backgroundImage: `linear-gradient(to bottom, ${alpha(
+                    isDark ? "#f8fafc" : "#0f172a",
+                    isStandardWeekTimeGrid ? 0.055 : 0.07,
+                  )} 1px, transparent 1px)`,
                   backgroundSize: `100% ${MOBILE_TIME_HOUR_HEIGHT}px`,
                   touchAction: "none",
                   WebkitTapHighlightColor: "transparent",
@@ -3904,19 +3917,24 @@ export function TodoCalendar({
                       }}
                       sx={{
                         position: "absolute",
-                        left: 4,
-                        right: 4,
+                        left: isStandardWeekTimeGrid ? 2 : 4,
+                        right: isStandardWeekTimeGrid ? 2 : 4,
                         top: clampNumber(startOffset, 0, totalHeight - 36),
                         height: Math.min(height, totalHeight),
-                        borderRadius: 1.5,
-                        bgcolor: alpha(itemColor, item.status === "completed" ? 0.42 : 0.82),
+                        borderRadius: isStandardWeekTimeGrid ? 1.1 : 1.5,
+                        bgcolor: alpha(
+                          itemColor,
+                          item.status === "completed" ? 0.3 : isStandardWeekTimeGrid ? 0.5 : 0.82,
+                        ),
                         border: isSelectedEvent
                           ? `1px solid ${alpha("#fff", isDark ? 0.72 : 0.9)}`
                           : "1px solid transparent",
                         boxShadow: isSelectedEvent
                           ? `0 16px 34px ${alpha(itemColor, 0.34)}`
-                          : `0 8px 16px ${alpha(itemColor, 0.18)}`,
-                        p: dates.length === 1 ? 1 : 0.65,
+                          : isStandardWeekTimeGrid
+                            ? "none"
+                            : `0 8px 16px ${alpha(itemColor, 0.18)}`,
+                        p: isSingleDayTimeGrid ? 1 : isStandardWeekTimeGrid ? 0.45 : 0.65,
                         overflow: "visible",
                         WebkitTapHighlightColor: "transparent",
                         touchAction: "none",
@@ -3947,7 +3965,7 @@ export function TodoCalendar({
                       )}
                       <Typography
                         sx={{
-                          fontSize: dates.length === 1 ? 13 : 11,
+                          fontSize: isSingleDayTimeGrid ? 13 : isStandardWeekTimeGrid ? 9.5 : 11,
                           lineHeight: 1.15,
                           fontWeight: 850,
                           color: "#1f2937",
@@ -3959,7 +3977,7 @@ export function TodoCalendar({
                       <Typography
                         sx={{
                           mt: 0.25,
-                          fontSize: dates.length === 1 ? 11 : 9.5,
+                          fontSize: isSingleDayTimeGrid ? 11 : isStandardWeekTimeGrid ? 8.5 : 9.5,
                           lineHeight: 1.1,
                           fontWeight: 750,
                           color: alpha("#1f2937", 0.72),
@@ -3971,7 +3989,7 @@ export function TodoCalendar({
                       <Typography
                         sx={{
                           mt: 0.25,
-                          fontSize: dates.length === 1 ? 11 : 9.5,
+                          fontSize: isSingleDayTimeGrid ? 11 : isStandardWeekTimeGrid ? 8.5 : 9.5,
                           lineHeight: 1.1,
                           color: alpha("#1f2937", 0.62),
                         }}
