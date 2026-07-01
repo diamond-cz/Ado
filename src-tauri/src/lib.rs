@@ -6,23 +6,31 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let window_settings = commands::window::load_window_settings();
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .manage(commands::window::CloseToTrayFlag::new(
             window_settings.close_to_tray,
         ))
         .manage(commands::window::AppQuitFlag::default())
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_http::init());
+
+    #[cfg(not(mobile))]
+    {
+        builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    }
+
+    builder
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            commands::window::install_system_tray(app)?;
-            #[cfg(windows)]
-            if let Some(window) = app.get_webview_window("todo") {
-                let _ = commands::taskbar::apply_window_app_id(&window, "com.aebox.ado");
-                commands::window::attach_todo_close_handler(&window);
+            #[cfg(not(mobile))]
+            {
+                commands::window::install_system_tray(app)?;
+                #[cfg(windows)]
+                if let Some(window) = app.get_webview_window("todo") {
+                    let _ = commands::taskbar::apply_window_app_id(&window, "com.aebox.ado");
+                    commands::window::attach_todo_close_handler(&window);
+                }
             }
             Ok(())
         })

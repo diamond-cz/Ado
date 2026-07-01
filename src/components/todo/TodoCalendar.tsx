@@ -6,8 +6,10 @@ import {
   useState,
   type ChangeEvent,
   type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+  type TouchEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import "@fullcalendar/react/skeleton.css";
 import "@fullcalendar/react/themes/classic/theme.css";
 import "@fullcalendar/react/themes/classic/palette.css";
@@ -23,7 +25,6 @@ import {
   Fab,
   FormControl,
   FormControlLabel,
-  GlobalStyles,
   IconButton,
   InputLabel,
   ListItemText,
@@ -33,6 +34,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
@@ -41,7 +43,9 @@ import CalendarTodayRoundedIcon from "@mui/icons-material/CalendarTodayRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
+import GridViewRoundedIcon from "@mui/icons-material/GridViewRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
+import MoreVertRoundedIcon from "@mui/icons-material/MoreVertRounded";
 import RemoveRoundedIcon from "@mui/icons-material/RemoveRounded";
 import RadioButtonUncheckedRoundedIcon from "@mui/icons-material/RadioButtonUncheckedRounded";
 import FullCalendar, {
@@ -73,13 +77,10 @@ import { Lunar } from "lunar-typescript";
 import { isInboxList, todoCompletionBlocker, useTodoStore } from "./useTodoStore";
 import { TodoEmoji } from "./TodoEmoji";
 import { TodoItem } from "./TodoItem";
+import { priorityMeta } from "./priority";
 import type { TodoFolder, TodoItem as TodoItemT, TodoList, TodoStatus } from "./types";
 import { ensureTodoReminderPermission } from "./todoReminders";
-import {
-  registerTodoCalendarDropTarget,
-  subscribeTodoCalendarDrag,
-  type TodoCalendarDragSnapshot,
-} from "./todoCalendarDrag";
+import { registerTodoCalendarDropTarget } from "./todoCalendarDrag";
 import { useStore } from "../../state/store";
 import { formatTodoZonedTime, todoTimeZoneShortLabel } from "../../lib/timeZones";
 
@@ -118,6 +119,12 @@ const CUSTOM_MONTH_MIN = 2;
 const CUSTOM_MONTH_MAX = 6;
 const CUSTOM_AGENDA_MIN = 1;
 const CUSTOM_AGENDA_MAX = 31;
+const MOBILE_OVERVIEW_VIEW = "mobileOverview";
+const MOBILE_EVENT_COLORS = ["#93a9f4", "#f39aa0", "#ffdca7", "#d8d8d8"];
+const MOBILE_TIME_HOUR_HEIGHT = 58;
+const MOBILE_TIME_STEP_MINUTES = 15;
+const MOBILE_TIME_MIN_DURATION_MINUTES = 30;
+const MOBILE_EVENT_LONG_PRESS_MS = 420;
 const FULLCALENDAR_PLUGINS: PluginInput[] = [
   dayGridPlugin,
   timeGridPlugin,
@@ -126,8 +133,107 @@ const FULLCALENDAR_PLUGINS: PluginInput[] = [
   interactionPlugin,
   iCalendarPlugin as unknown as PluginInput,
 ];
+const FullCalendarAny = FullCalendar as any;
 
 type CustomDurationKind = "days" | "weeks" | "months" | "agenda";
+type CalendarViewIconKind = "overview" | "day" | "week" | "month" | "year" | "agenda";
+
+function CalendarViewIcon({
+  kind,
+  size = 22,
+}: {
+  kind: CalendarViewIconKind;
+  size?: number;
+}) {
+  const strokeWidth = kind === "agenda" ? 2.1 : 2;
+  return (
+    <Box
+      component="svg"
+      viewBox="0 0 24 24"
+      aria-hidden
+      sx={{ width: size, height: size, display: "block", flexShrink: 0 }}
+    >
+      {kind === "agenda" ? (
+        <>
+          <path
+            d="M4 6h16M4 12h16M4 18h16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+          />
+          <path
+            d="M4 6h.01M4 12h.01M4 18h.01"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={3}
+            strokeLinecap="round"
+          />
+        </>
+      ) : (
+        <>
+          <rect
+            x="4"
+            y="5"
+            width="16"
+            height="15"
+            rx="2.4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+          />
+          <path
+            d="M8 3.5v3M16 3.5v3M4 9h16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+          />
+          {kind === "overview" && (
+            <>
+              <path d="M8 12h2M14 12h2M8 16h2M14 16h2" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" />
+            </>
+          )}
+          {kind === "day" && (
+            <rect x="9" y="12" width="6" height="5" rx="1.2" fill="currentColor" opacity="0.9" />
+          )}
+          {kind === "week" && (
+            <>
+              <path d="M8 12v5M12 12v5M16 12v5" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+              <path d="M7 12h10M7 17h10" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+            </>
+          )}
+          {kind === "month" && (
+            <>
+              <path d="M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01" stroke="currentColor" strokeWidth={3} strokeLinecap="round" />
+            </>
+          )}
+          {kind === "year" && (
+            <>
+              <path d="M8 12h3M13 12h3M8 15h3M13 15h3M8 18h3M13 18h3" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" />
+            </>
+          )}
+        </>
+      )}
+    </Box>
+  );
+}
+
+interface MobileTimeSelection {
+  dateKey: string;
+  startMinutes: number;
+  endMinutes: number;
+}
+
+interface MobileEventDrag {
+  itemId: string;
+  rect: DOMRect;
+  mode: "move" | "start" | "end";
+  pointerId: number;
+  anchorMinutes: number;
+  originalStartMinutes: number;
+  originalEndMinutes: number;
+}
 
 type CalendarSubscriptionType = "url" | "file";
 
@@ -171,22 +277,6 @@ const CALENDAR_SUBSCRIPTION_COLORS = [
   "#7c3aed",
   "#dc2626",
   "#0891b2",
-] as const;
-const TODO_EVENT_COLOR_PALETTE = [
-  "#2563eb",
-  "#0f9f83",
-  "#d97706",
-  "#7c3aed",
-  "#dc2626",
-  "#0891b2",
-  "#e11d48",
-  "#16a34a",
-  "#4f46e5",
-  "#ea580c",
-  "#7c5f50",
-  "#be185d",
-  "#0d9488",
-  "#9333ea",
 ] as const;
 
 const MONTH_LABELS = [
@@ -390,10 +480,39 @@ function addLocalYears(date: Date, years: number): Date {
   return new Date(date.getFullYear() + years, date.getMonth(), date.getDate());
 }
 
+function addLocalMonths(date: Date, months: number): Date {
+  const target = new Date(date.getFullYear(), date.getMonth() + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(date.getDate(), lastDay));
+  return target;
+}
+
 function buildMonthCells(year: number, month: number): Date[] {
   const first = new Date(year, month, 1);
   const start = new Date(year, month, 1 - first.getDay());
   return Array.from({ length: 42 }, (_, index) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + index);
+    return d;
+  });
+}
+
+function buildCalendarGridCells(year: number, month: number, firstDay: number): Date[] {
+  const first = new Date(year, month, 1);
+  const offset = (first.getDay() - firstDay + 7) % 7;
+  const start = new Date(year, month, 1 - offset);
+  return Array.from({ length: 42 }, (_, index) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + index);
+    return d;
+  });
+}
+
+function buildWeekCells(date: Date, firstDay: number): Date[] {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const offset = (start.getDay() - firstDay + 7) % 7;
+  start.setDate(start.getDate() - offset);
+  return Array.from({ length: 7 }, (_, index) => {
     const d = new Date(start);
     d.setDate(start.getDate() + index);
     return d;
@@ -409,6 +528,15 @@ function hourToFullCalendarTime(hour: number): string {
   return `${h.toString().padStart(2, "0")}:00:00`;
 }
 
+function updateFullCalendarSize(api: unknown): void {
+  const maybeApi = api as { updateSize?: () => void; render?: () => void } | null | undefined;
+  if (typeof maybeApi?.updateSize === "function") {
+    maybeApi.updateSize();
+    return;
+  }
+  maybeApi?.render?.();
+}
+
 function fullCalendarTimeToMinutes(value: string): number | null {
   const match = value.match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
   if (!match) return null;
@@ -419,138 +547,23 @@ function fullCalendarTimeToMinutes(value: string): number | null {
 }
 
 function localDateKeyToDate(value: string | null): Date | null {
-  const match = value?.match(
-    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/,
-  );
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
-  return new Date(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    match[4] ? Number(match[4]) : 0,
-    match[5] ? Number(match[5]) : 0,
-    match[6] ? Number(match[6]) : 0,
-  );
-}
-
-interface TodoCalendarDragPreviewLayerProps {
-  items: TodoItemT[];
-  isDark: boolean;
-}
-
-function TodoCalendarDragPreviewLayer({
-  items,
-  isDark,
-}: TodoCalendarDragPreviewLayerProps) {
-  const theme = useTheme();
-  const [dragSnapshot, setDragSnapshot] = useState<TodoCalendarDragSnapshot | null>(
-    null,
-  );
-  const latestSnapshotRef = useRef<TodoCalendarDragSnapshot | null>(null);
-  const frameRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const flushDragSnapshot = () => {
-      frameRef.current = null;
-      setDragSnapshot(latestSnapshotRef.current);
-    };
-
-    const unsubscribe = subscribeTodoCalendarDrag((nextSnapshot) => {
-      latestSnapshotRef.current = nextSnapshot;
-      if (frameRef.current == null) {
-        frameRef.current = window.requestAnimationFrame(flushDragSnapshot);
-      }
-    });
-
-    return () => {
-      unsubscribe();
-      if (frameRef.current != null) {
-        window.cancelAnimationFrame(frameRef.current);
-      }
-      frameRef.current = null;
-    };
-  }, []);
-
-  const previewItem = useMemo(
-    () =>
-      dragSnapshot
-        ? items.find((item) => item.id === dragSnapshot.itemId) ?? null
-        : null,
-    [dragSnapshot?.itemId, items],
-  );
-
-  if (
-    !dragSnapshot ||
-    !previewItem ||
-    typeof document === "undefined" ||
-    typeof window === "undefined"
-  ) {
-    return null;
-  }
-
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const previewWidth = clampNumber(
-    dragSnapshot.sourceWidth ?? 280,
-    220,
-    Math.max(220, viewportWidth - 24),
-  );
-  const previewHeight = dragSnapshot.sourceHeight ?? 48;
-  const previewLeft = clampNumber(
-    dragSnapshot.clientX + 12,
-    12,
-    Math.max(12, viewportWidth - previewWidth - 12),
-  );
-  const previewTop = clampNumber(
-    dragSnapshot.clientY + 12,
-    12,
-    Math.max(12, viewportHeight - previewHeight - 12),
-  );
-
-  return createPortal(
-    <Box
-      sx={{
-        position: "fixed",
-        left: 0,
-        top: 0,
-        width: previewWidth,
-        zIndex: theme.zIndex.modal + 4,
-        pointerEvents: "none",
-        opacity: 0.96,
-        transform: `translate3d(${previewLeft}px, ${previewTop}px, 0)`,
-        willChange: "transform",
-        contain: "layout style paint",
-        filter: `drop-shadow(0 14px 26px ${alpha("#000", isDark ? 0.38 : 0.18)})`,
-      }}
-    >
-      <Box
-        sx={{
-          overflow: "hidden",
-          borderRadius: 1,
-          border: 1,
-          borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.18 : 0.12),
-          bgcolor: alpha(theme.palette.primary.main, isDark ? 0.18 : 0.11),
-        }}
-      >
-        <TodoItem
-          item={previewItem}
-          isDark={isDark}
-          draggable={false}
-          compactMeta
-          disableOuterMargin
-          flushOuterSpacing
-          forceDragHandleVisible
-        />
-      </Box>
-    </Box>,
-    document.body,
-  );
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
 
 function itemCalendarDurationMs(item: TodoItemT): number {
   return item.dueAt != null && item.dueEndAt != null && item.dueEndAt > item.dueAt
     ? item.dueEndAt - item.dueAt
     : DEFAULT_EVENT_DURATION_MS;
+}
+
+function hashStringToIndex(value: string, modulo: number): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return modulo <= 0 ? 0 : hash % modulo;
 }
 
 function densityBucket(count: number, maxCount: number): number {
@@ -567,45 +580,6 @@ function createCalendarSubscriptionId(): string {
 
 function calendarSubscriptionColor(index: number): string {
   return CALENDAR_SUBSCRIPTION_COLORS[index % CALENDAR_SUBSCRIPTION_COLORS.length];
-}
-
-function stableStringHash(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function todoEventColorIndex(
-  itemId: string,
-  priority: TodoItemT["priority"],
-  dueAt: number | null,
-): number {
-  const seed = `${priority}:${dueAt ?? 0}:${itemId}`;
-  return stableStringHash(seed) % TODO_EVENT_COLOR_PALETTE.length;
-}
-
-function todoEventColorByIndex(index: number): string {
-  return TODO_EVENT_COLOR_PALETTE[index % TODO_EVENT_COLOR_PALETTE.length];
-}
-
-function todoEventColorStyle(
-  color: string,
-  status: TodoStatus,
-  isDark: boolean,
-): {
-  backgroundColor: string;
-  borderColor: string;
-  textColor: string;
-} {
-  const completed = status === "completed";
-  return {
-    backgroundColor: alpha(color, completed ? (isDark ? 0.16 : 0.09) : (isDark ? 0.24 : 0.12)),
-    borderColor: alpha(color, completed ? (isDark ? 0.36 : 0.24) : (isDark ? 0.58 : 0.38)),
-    textColor: isDark ? "#f8fafc" : "#0f172a",
-  };
 }
 
 function createIcsBlobUrl(icsText: string): string {
@@ -744,6 +718,8 @@ interface ChineseCalendarMeta {
   holidayName: string | null;
   solarTerm: string | null;
   isRestDay: boolean;
+  isWeekend: boolean;
+  isHolidayRestDay: boolean;
   isAdjustedWorkday: boolean;
 }
 
@@ -762,17 +738,31 @@ function isTodoTimeGridView(viewType: string): boolean {
   );
 }
 
-function isTodoAgendaView(viewType: string): boolean {
-  return viewType === "customAgenda" || viewType.startsWith("list");
-}
-
-function updateCalendarApiSize(api: unknown): void {
-  (api as { updateSize?: () => void } | null | undefined)?.updateSize?.();
-}
-
 function parseChineseHolidayName(name: string): string | null {
   const [, chineseName] = name.split(",");
   return chineseName?.trim() || null;
+}
+
+function getSpecificHolidayName(date: Date, relatedHolidayName: string | null): string | null {
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const weekday = date.getDay();
+  const lunar = Lunar.fromDate(date);
+  const lunarMonth = lunar.getMonth();
+  const lunarDay = lunar.getDay();
+
+  if (month === 1 && day === 1) return relatedHolidayName ?? "元旦";
+  if (month === 5 && day === 1) return relatedHolidayName ?? "劳动节";
+  if (month === 10 && day === 1) return relatedHolidayName ?? "国庆节";
+  if (month === 6 && weekday === 0 && day >= 15 && day <= 21) return "父亲节";
+  if (month === 5 && weekday === 0 && day >= 8 && day <= 14) return "母亲节";
+  if (lunarMonth === 1 && lunarDay === 1) return "春节";
+  if (lunarMonth === 1 && lunarDay === 15) return "元宵节";
+  if (lunarMonth === 5 && lunarDay === 5) return "端午";
+  if (lunarMonth === 7 && lunarDay === 7) return "七夕";
+  if (lunarMonth === 8 && lunarDay === 15) return "中秋";
+  if (lunarMonth === 9 && lunarDay === 9) return "重阳";
+  return null;
 }
 
 function getChineseCalendarMeta(date: Date): ChineseCalendarMeta {
@@ -780,11 +770,16 @@ function getChineseCalendarMeta(date: Date): ChineseCalendarMeta {
   const dayDetail = chineseDays.getDayDetail(key);
   const relatedHolidayName = parseChineseHolidayName(dayDetail.name);
   const solarTerm = chineseDays.getSolarTerms(key, key)[0]?.name ?? null;
+  const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+  const isRestDay = !dayDetail.work;
+  const isAdjustedWorkday = dayDetail.work && relatedHolidayName != null;
   return {
-    holidayName: dayDetail.work ? null : relatedHolidayName,
+    holidayName: getSpecificHolidayName(date, relatedHolidayName),
     solarTerm,
-    isRestDay: !dayDetail.work,
-    isAdjustedWorkday: dayDetail.work && relatedHolidayName != null,
+    isRestDay,
+    isWeekend,
+    isHolidayRestDay: isRestDay && (!isWeekend || relatedHolidayName != null),
+    isAdjustedWorkday,
   };
 }
 
@@ -869,11 +864,29 @@ export function TodoCalendar({
   accentColor,
 }: Props) {
   const theme = useTheme();
+  const isMobileCalendar = useMediaQuery(theme.breakpoints.down("sm"));
   const rootRef = useRef<HTMLDivElement | null>(null);
   const calendarSurfaceRef = useRef<HTMLDivElement | null>(null);
   const yearViewScrollRef = useRef<HTMLDivElement | null>(null);
   const yearViewMonthRefs = useRef<Array<HTMLDivElement | null>>([]);
   const calendarRef = useRef<CalendarRef | null>(null);
+  const calendarTouchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const mobileCalendarPanStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const mobileTimeDragRef = useRef<{
+    dateKey: string;
+    rect: DOMRect;
+    mode: "create" | "start" | "end";
+    pointerId: number;
+    anchorMinutes: number;
+  } | null>(null);
+  const mobileEventDragRef = useRef<MobileEventDrag | null>(null);
+  const mobileEventLongPressRef = useRef<{
+    timer: ReturnType<typeof window.setTimeout>;
+    itemId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
   const items = useTodoStore((s) => s.items);
   const folders = useTodoStore((s) => s.folders);
   const lists = useTodoStore((s) => s.lists);
@@ -949,14 +962,23 @@ export function TodoCalendar({
   );
 
   const [draft, setDraft] = useState<CalendarDraft | null>(null);
+  const [mobileTimeSelection, setMobileTimeSelection] = useState<MobileTimeSelection | null>(null);
+  const [mobileTimeSelectionContent, setMobileTimeSelectionContent] = useState("");
+  const [mobileTimeSelectionEditing, setMobileTimeSelectionEditing] = useState(false);
+  const [mobileSelectedEventId, setMobileSelectedEventId] = useState<string | null>(null);
+  const [mobileCalendarLabelTick, setMobileCalendarLabelTick] = useState(0);
   const [viewMenuAnchor, setViewMenuAnchor] = useState<HTMLElement | null>(null);
-  const [calendarViewType, setCalendarViewType] = useState(initialView);
+  const [calendarViewType, setCalendarViewType] = useState(() =>
+    isMobileCalendar && initialView === "dayGridMonth" ? MOBILE_OVERVIEW_VIEW : initialView,
+  );
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [mobileMonthExpanded, setMobileMonthExpanded] = useState(false);
   const [customDayCount, setCustomDayCount] = useState(3);
   const [customWeekCount, setCustomWeekCount] = useState(2);
   const [customMonthCount, setCustomMonthCount] = useState(2);
   const [agendaDayCount, setAgendaDayCount] = useState(3);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mobileSelectionInputRef = useRef<HTMLInputElement | null>(null);
   const listFilterFolderCloseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(
     null,
   );
@@ -975,6 +997,8 @@ export function TodoCalendar({
     () => new Set(activeLists.map((list) => list.id)),
   );
   const [subscriptionMenuAnchor, setSubscriptionMenuAnchor] = useState<HTMLElement | null>(null);
+  const [mobileCalendarMenuAnchor, setMobileCalendarMenuAnchor] =
+    useState<HTMLElement | null>(null);
   const [calendarSubscriptions, setCalendarSubscriptions] = useState<CalendarSubscription[]>(
     loadCalendarSubscriptions,
   );
@@ -1055,6 +1079,18 @@ export function TodoCalendar({
     setListFilterMenuAnchor(null);
   }, [clearListFilterFolderCloseTimer]);
 
+  const openMobileListFilterMenu = useCallback(() => {
+    const anchor = mobileCalendarMenuAnchor;
+    setMobileCalendarMenuAnchor(null);
+    if (anchor) setListFilterMenuAnchor(anchor);
+  }, [mobileCalendarMenuAnchor]);
+
+  const openMobileSubscriptionMenu = useCallback(() => {
+    const anchor = mobileCalendarMenuAnchor;
+    setMobileCalendarMenuAnchor(null);
+    if (anchor) setSubscriptionMenuAnchor(anchor);
+  }, [mobileCalendarMenuAnchor]);
+
   const toggleAllCalendarListsVisible = useCallback(() => {
     setCalendarVisibleListIds((current) => {
       if (activeLists.length === 0) return current;
@@ -1127,17 +1163,28 @@ export function TodoCalendar({
   );
 
   const viewPickerLabel =
-    calendarViewType === "customDays"
-      ? `${customDayCount}日`
-      : calendarViewType === "customWeeks"
-        ? `${customWeekCount}周`
-        : calendarViewType === "customMonths"
-          ? `${customMonthCount}月`
-          : calendarViewType === "customAgenda"
-            ? `议程 ${agendaDayCount}天`
-            : "自定义";
+    calendarViewType === MOBILE_OVERVIEW_VIEW
+      ? "总览"
+      : calendarViewType === "timeGridDay"
+        ? "日视图"
+        : calendarViewType === "dayGridWeek"
+          ? "周视图"
+          : calendarViewType === "dayGridMonth"
+            ? "月视图"
+            : calendarViewType === "todoYear"
+              ? "年视图"
+              : calendarViewType === "customDays"
+                ? `${customDayCount}日`
+                : calendarViewType === "customWeeks"
+                  ? `${customWeekCount}周`
+                  : calendarViewType === "customMonths"
+                    ? `${customMonthCount}月`
+                    : calendarViewType === "customAgenda"
+                      ? `日程 ${agendaDayCount}天`
+                      : "自定义";
+  const viewPickerButtonText = viewPickerLabel;
   const isYearView = calendarViewType === "todoYear";
-  const showInboxPane = !compact;
+  const showInboxPane = !compact && !isMobileCalendar;
   const showInboxToggle = showInboxPane;
   const inboxPaneVisible = showInboxPane && !inboxPaneCollapsed;
   const calendarInboxDefaultSizes = useMemo(() => readCalendarInboxSplitSizes(), []);
@@ -1164,7 +1211,7 @@ export function TodoCalendar({
   }, [todoDayEndHour, todoDayStartHour]);
 
   const updateCalendarSize = useCallback(() => {
-    updateCalendarApiSize(calendarRef.current?.getApi());
+    updateFullCalendarSize(calendarRef.current?.getApi());
   }, []);
 
   const onCalendarSplitChange = useCallback(() => {
@@ -1281,67 +1328,49 @@ export function TodoCalendar({
     };
   }, [calendarSubscriptions]);
 
-  const events = useMemo<EventInput[]>(() => {
-    const visibleItems = items
-      .filter(
-        (item) =>
-          item.deletedAt == null &&
-          (item.status === "pending" ||
-            (calendarShowCompleted && item.status === "completed")) &&
-          item.dueAt != null &&
-          calendarVisibleListIds.has(item.listId),
-      )
-      .sort((a, b) => {
-        const timeDelta = (a.dueAt ?? 0) - (b.dueAt ?? 0);
-        if (timeDelta !== 0) return timeDelta;
-        const priorityDelta = (a.priority ?? "").localeCompare(b.priority ?? "");
-        if (priorityDelta !== 0) return priorityDelta;
-        return a.id.localeCompare(b.id);
-      });
-    const usedColorIndexesByDay = new Map<string, Set<number>>();
-
-    return visibleItems.map((item) => {
-      const start = item.dueAt ?? Date.now();
-      const dayKey = localDayKey(start);
-      const usedColorIndexes = usedColorIndexesByDay.get(dayKey) ?? new Set<number>();
-      let colorIndex = todoEventColorIndex(item.id, item.priority, item.dueAt);
-      for (let attempt = 0; attempt < TODO_EVENT_COLOR_PALETTE.length; attempt += 1) {
-        if (!usedColorIndexes.has(colorIndex)) break;
-        colorIndex = (colorIndex + 1) % TODO_EVENT_COLOR_PALETTE.length;
-      }
-      usedColorIndexes.add(colorIndex);
-      usedColorIndexesByDay.set(dayKey, usedColorIndexes);
-
-      const itemColor = todoEventColorByIndex(colorIndex);
-      const eventColorStyle = todoEventColorStyle(itemColor, item.status, isDark);
-      const hasRange = item.dueEndAt != null && item.dueEndAt > start;
-      return {
-        id: item.id,
-        title: item.content,
-        start,
-        end: hasRange ? item.dueEndAt ?? undefined : start + DEFAULT_EVENT_DURATION_MS,
-        display: "block",
-        color: eventColorStyle.backgroundColor,
-        contrastColor: eventColorStyle.textColor,
-        backgroundColor: eventColorStyle.backgroundColor,
-        borderColor: eventColorStyle.borderColor,
-        textColor: eventColorStyle.textColor,
-        extendedProps: {
-          priority: item.priority,
-          color: itemColor,
-          backgroundColor: eventColorStyle.backgroundColor,
-          borderColor: eventColorStyle.borderColor,
-          textColor: eventColorStyle.textColor,
-          progress: item.progress,
-          status: item.status,
-          hasRange,
-          dueAt: item.dueAt,
-          dueEndAt: item.dueEndAt,
-          reminderEnabled: item.reminderEnabled,
-        },
-      };
-    });
-  }, [calendarShowCompleted, calendarVisibleListIds, isDark, items]);
+  const events = useMemo<EventInput[]>(
+    () =>
+      items
+        .filter(
+          (item) =>
+            item.deletedAt == null &&
+            (item.status === "pending" ||
+              (calendarShowCompleted && item.status === "completed")) &&
+            item.dueAt != null &&
+            calendarVisibleListIds.has(item.listId),
+        )
+        .map((item) => {
+          const priority = priorityMeta(item.priority);
+          const start = item.dueAt ?? Date.now();
+          const hasRange = item.dueEndAt != null && item.dueEndAt > start;
+          return {
+            id: item.id,
+            title: item.content,
+            start,
+            end: hasRange ? item.dueEndAt ?? undefined : start + DEFAULT_EVENT_DURATION_MS,
+            display: "block",
+            backgroundColor:
+              item.status === "completed"
+                ? alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.1 : 0.055)
+                : alpha(priority.color, isDark ? 0.3 : 0.14),
+            borderColor:
+              item.status === "completed"
+                ? alpha(isDark ? "#f8fafc" : "#0f172a", 0.2)
+                : alpha(priority.color, isDark ? 0.75 : 0.45),
+            textColor: isDark ? "#f8fafc" : "#0f172a",
+            extendedProps: {
+              priority: item.priority,
+              progress: item.progress,
+              status: item.status,
+              hasRange,
+              dueAt: item.dueAt,
+              dueEndAt: item.dueEndAt,
+              reminderEnabled: item.reminderEnabled,
+            },
+          };
+        }),
+    [calendarShowCompleted, calendarVisibleListIds, isDark, items],
+  );
 
   const calendarSubscriptionIds = useMemo(
     () => new Set(calendarSubscriptions.map((subscription) => subscription.id)),
@@ -1532,7 +1561,12 @@ export function TodoCalendar({
     setDraft(itemToDraft(item));
   };
 
-  const closeCalendarDialog = () => setDraft(null);
+  const closeCalendarDialog = () => {
+    setDraft(null);
+    setMobileTimeSelection(null);
+    setMobileTimeSelectionContent("");
+    setMobileTimeSelectionEditing(false);
+  };
 
   const submitDraft = () => {
     if (!draft) return;
@@ -1620,90 +1654,19 @@ export function TodoCalendar({
               bgcolor: subscription?.color ?? "primary.main",
             }}
           />
+          <Typography className="todo-calendar-event-title">
+            {arg.event.title || subscription?.name || "日程"}
+          </Typography>
           {timeText && (
             <Typography component="span" className="todo-calendar-event-time">
               {timeText}
             </Typography>
           )}
-          <Typography className="todo-calendar-event-title">
-            {arg.event.title || subscription?.name || "日程"}
-          </Typography>
         </Box>
       );
     }
 
     const completed = status === "completed";
-    const todoTimeText = isTodoAgendaView(arg.view.type)
-      ? formatEventTime(
-          arg.event.start,
-          arg.event.end,
-          Boolean(arg.event.extendedProps.hasRange),
-        )
-      : "";
-    const isEventPreview = arg.isMirror || arg.isDragging || arg.isResizing;
-    if (isEventPreview) {
-      return (
-        <Box
-          className="todo-calendar-event-content todo-calendar-todo-event-content is-drag-preview"
-          sx={{
-            boxSizing: "border-box",
-            minWidth: 0,
-            minHeight: 0,
-            width: "100%",
-            maxWidth: "100%",
-            height: "100%",
-            maxHeight: "100%",
-            display: "flex",
-            alignItems: "center",
-            gap: 0.5,
-            px: 0.35,
-            py: 0,
-            overflow: "hidden",
-            flexWrap: "nowrap",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {completed ? (
-            <CheckCircleRoundedIcon sx={{ fontSize: 14, color: "success.main", flexShrink: 0 }} />
-          ) : (
-            <RadioButtonUncheckedRoundedIcon
-              sx={{ fontSize: 14, color: "text.secondary", flexShrink: 0 }}
-            />
-          )}
-          {todoTimeText && (
-            <Typography
-              component="span"
-              className="todo-calendar-event-time todo-calendar-todo-event-time"
-              sx={{
-                flexShrink: 0,
-                fontSize: 11,
-                lineHeight: "18px",
-                fontWeight: 700,
-                whiteSpace: "nowrap",
-              }}
-            >
-              {todoTimeText}
-            </Typography>
-          )}
-          <Typography
-            component="span"
-            className="todo-calendar-event-title"
-            sx={{
-              minWidth: 0,
-              flex: "1 1 auto",
-              fontSize: 12,
-              lineHeight: "18px",
-              fontWeight: 600,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {arg.event.title}
-          </Typography>
-        </Box>
-      );
-    }
     const eventItem = items.find((item) => item.id === arg.event.id) ?? null;
     const completionBlocker = eventItem ? todoCompletionBlocker(eventItem, items) : null;
     const completionLocked = !completed && completionBlocker != null;
@@ -1755,14 +1718,6 @@ export function TodoCalendar({
             </IconButton>
           </span>
         </Tooltip>
-        {todoTimeText && (
-          <Typography
-            component="span"
-            className="todo-calendar-event-time todo-calendar-todo-event-time"
-          >
-            {todoTimeText}
-          </Typography>
-        )}
         <Typography className="todo-calendar-event-title">{arg.event.title}</Typography>
         {reminderEnabled && (
           <AlarmRoundedIcon sx={{ fontSize: 13, color: "warning.main", flexShrink: 0 }} />
@@ -1950,13 +1905,30 @@ export function TodoCalendar({
   const changeCalendarView = (viewType: string) => {
     const api = calendarRef.current?.getApi();
     const targetDate = viewType === "todoYear" ? (api?.getDate() ?? calendarDate) : calendarDate;
+    if (isMobileCalendar) {
+      if (
+        viewType === "dayGridMonth" ||
+        viewType === "customMonths" ||
+        viewType === "todoYear" ||
+        viewType === "customAgenda"
+      ) {
+        setMobileMonthExpanded(true);
+      } else if (viewType === MOBILE_OVERVIEW_VIEW) {
+        setMobileMonthExpanded(false);
+      } else {
+        setMobileMonthExpanded(false);
+      }
+      setCalendarViewType(viewType);
+      setViewMenuAnchor(null);
+      return;
+    }
     if (viewType === "todoYear") {
       keepYearViewOnNextDatesSetRef.current = true;
     }
     if (api) {
       api.gotoDate(targetDate);
       api.changeView(viewType);
-      window.requestAnimationFrame(() => updateCalendarApiSize(api));
+      window.requestAnimationFrame(() => updateFullCalendarSize(api));
     }
     setCalendarDate(targetDate);
     setCalendarViewType(viewType);
@@ -1969,7 +1941,7 @@ export function TodoCalendar({
     if (api) {
       api.gotoDate(date);
       api.changeView(viewType);
-      window.requestAnimationFrame(() => updateCalendarApiSize(api));
+      window.requestAnimationFrame(() => updateFullCalendarSize(api));
     }
     setCalendarViewType(viewType);
     setViewMenuAnchor(null);
@@ -1980,7 +1952,7 @@ export function TodoCalendar({
       const api = calendarRef.current?.getApi();
       api?.gotoDate(calendarDate);
       api?.changeView(viewType);
-      updateCalendarApiSize(api);
+      updateFullCalendarSize(api);
       setCalendarViewType(viewType);
     }, 0);
   };
@@ -2045,8 +2017,32 @@ export function TodoCalendar({
     }
   };
 
+  const handleCalendarTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    if (!isMobileCalendar || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    calendarTouchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: window.performance.now(),
+    };
+  };
+
+  const handleCalendarTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    if (!isMobileCalendar || event.changedTouches.length !== 1) return;
+    const start = calendarTouchStartRef.current;
+    calendarTouchStartRef.current = null;
+    if (!start) return;
+
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const elapsed = window.performance.now() - start.time;
+    if (elapsed > 700 || Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+    goCalendarByStep(dx > 0 ? -1 : 1);
+  };
+
   useEffect(() => {
-    if (!isYearView) return;
+    if (!isYearView || isMobileCalendar) return;
     const monthIndex = calendarDate.getMonth();
     const frame = window.requestAnimationFrame(() => {
       const scroller = yearViewScrollRef.current;
@@ -2059,7 +2055,61 @@ export function TodoCalendar({
       scroller.scrollTo({ top: Math.max(0, top), behavior: "auto" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [calendarDate, isYearView]);
+  }, [calendarDate, isMobileCalendar, isYearView]);
+
+  const getViewMenuItemSx = (selected: boolean) => ({
+    mx: isMobileCalendar ? 0.75 : 0,
+    my: isMobileCalendar ? 0.35 : 0,
+    minHeight: isMobileCalendar ? 46 : 36,
+    borderRadius: isMobileCalendar ? 2 : 0,
+    gap: isMobileCalendar ? 1.25 : 1,
+    color: "text.primary",
+    "&.Mui-selected": {
+      bgcolor: alpha(theme.palette.primary.main, isDark ? 0.22 : 0.1),
+    },
+    "&.Mui-selected:hover": {
+      bgcolor: alpha(theme.palette.primary.main, isDark ? 0.28 : 0.14),
+    },
+    "&:hover": {
+      bgcolor: isMobileCalendar
+        ? alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.08 : 0.055)
+        : undefined,
+    },
+    ...(selected
+      ? {
+          fontWeight: 750,
+        }
+      : null),
+  });
+
+  const renderViewMenuItem = (viewType: string, label: string, icon: ReactNode) => {
+    const selected = calendarViewType === viewType;
+    return (
+      <MenuItem
+        selected={selected}
+        onClick={() => changeCalendarView(viewType)}
+        sx={getViewMenuItemSx(selected)}
+      >
+        <Box
+          sx={{
+            width: 30,
+            height: 30,
+            borderRadius: 2,
+            display: "grid",
+            placeItems: "center",
+            color: selected ? "primary.main" : "text.secondary",
+            bgcolor: selected ? alpha(theme.palette.primary.main, isDark ? 0.22 : 0.11) : "transparent",
+          }}
+        >
+          {icon}
+        </Box>
+        <Typography sx={{ flex: 1, minWidth: 0, fontSize: isMobileCalendar ? 15 : 13 }}>
+          {label}
+        </Typography>
+        {selected && <CheckCircleRoundedIcon sx={{ fontSize: 18, color: "primary.main" }} />}
+      </MenuItem>
+    );
+  };
 
   const renderCustomDurationItem = ({
     label,
@@ -2078,9 +2128,20 @@ export function TodoCalendar({
     kind: CustomDurationKind;
     viewType: string;
   }) => (
-    <MenuItem selected={selected} onClick={() => changeCalendarView(viewType)}>
-      <Box sx={{ width: 220, display: "flex", alignItems: "center", gap: 2 }}>
-        <Typography sx={{ flex: 1, fontSize: 13 }}>{label}</Typography>
+    <MenuItem
+      selected={selected}
+      onClick={() => changeCalendarView(viewType)}
+      sx={getViewMenuItemSx(selected)}
+    >
+      <Box
+        sx={{
+          width: isMobileCalendar ? "100%" : 220,
+          display: "flex",
+          alignItems: "center",
+          gap: 2,
+        }}
+      >
+        <Typography sx={{ flex: 1, fontSize: isMobileCalendar ? 15 : 13 }}>{label}</Typography>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           <IconButton
             size="small"
@@ -2123,27 +2184,56 @@ export function TodoCalendar({
     return (
       <Box sx={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
         <Box
+          sx={{
+            display: { xs: "flex", sm: "none" },
+            alignItems: "center",
+            gap: 0.7,
+            px: 2.2,
+            pt: 2.2,
+            pb: 1.6,
+            flexShrink: 0,
+          }}
+        >
+          <Typography sx={{ flex: 1, fontSize: 28, lineHeight: 1.2, fontWeight: 800 }}>
+            {year}年
+          </Typography>
+          <IconButton
+            aria-label="切换日历视图"
+            onClick={(event) => setViewMenuAnchor(event.currentTarget)}
+            sx={{ width: 40, height: 40, color: "text.primary" }}
+          >
+            <GridViewRoundedIcon sx={{ fontSize: 25 }} />
+          </IconButton>
+          <IconButton
+            aria-label="更多日历选项"
+            onClick={(event) => setMobileCalendarMenuAnchor(event.currentTarget)}
+            sx={{ width: 40, height: 40, color: "text.primary" }}
+          >
+            <MoreVertRoundedIcon sx={{ fontSize: 26 }} />
+          </IconButton>
+        </Box>
+        <Box
           ref={yearViewScrollRef}
           sx={{
             flex: "1 1 auto",
             minHeight: 0,
             overflow: "auto",
-            pt: 0.9,
-            px: { xs: 0.8, md: 1.2 },
-            pb: 1.2,
+            pt: { xs: 0.4, sm: 0.9 },
+            px: { xs: 2.2, sm: 0.8, md: 1.2 },
+            pb: { xs: 2.4, sm: 1.2 },
           }}
         >
           <Box
             sx={{
               display: "grid",
               gridTemplateColumns: {
-                xs: "1fr",
+                xs: "repeat(3, minmax(0, 1fr))",
                 sm: "repeat(2, minmax(220px, 1fr))",
                 lg: "repeat(3, minmax(220px, 1fr))",
                 xl: "repeat(4, minmax(220px, 1fr))",
               },
-              columnGap: 2.6,
-              rowGap: 3.2,
+              columnGap: { xs: 2.2, sm: 2.6 },
+              rowGap: { xs: 4.2, sm: 3.2 },
             }}
           >
             {MONTH_LABELS.map((monthLabel, monthIndex) => {
@@ -2159,10 +2249,11 @@ export function TodoCalendar({
                   <Typography
                     onClick={() => jumpFromYearView("dayGridMonth", new Date(year, monthIndex, 1))}
                     sx={{
-                      fontSize: 16,
+                      fontSize: { xs: 20, sm: 16 },
+                      lineHeight: 1,
                       fontWeight: 800,
-                      mb: 1.4,
-                      px: 0.2,
+                      mb: { xs: 1, sm: 1.4 },
+                      px: { xs: 0, sm: 0.2 },
                       cursor: "pointer",
                       width: "fit-content",
                       ":hover": { color: "primary.main" },
@@ -2174,19 +2265,20 @@ export function TodoCalendar({
                     sx={{
                       display: "grid",
                       gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-                      gap: 0.35,
+                      gap: { xs: 0.1, sm: 0.35 },
                     }}
                   >
                     {WEEKDAY_LABELS.map((weekday) => (
                       <Typography
                         key={weekday}
                         sx={{
-                          height: 22,
+                          height: { xs: 12, sm: 22 },
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          fontSize: 11,
-                          color: "text.secondary",
+                          fontSize: { xs: 8.5, sm: 11 },
+                          fontWeight: 500,
+                          color: "text.disabled",
                         }}
                       >
                         {weekday}
@@ -2203,6 +2295,14 @@ export function TodoCalendar({
                           ? 0
                           : [0.08, 0.14, 0.21, 0.29, 0.38][bucket - 1] *
                             (isDark ? 1.18 : 1);
+                      if (!inMonth) {
+                        return (
+                          <Box
+                            key={`${monthLabel}-blank-${key}`}
+                            sx={{ height: { xs: 13, sm: 30 } }}
+                          />
+                        );
+                      }
                       return (
                         <Tooltip
                           key={key}
@@ -2213,27 +2313,33 @@ export function TodoCalendar({
                             data-date={key}
                             onClick={() => jumpFromYearView("timeGridDay", date)}
                             sx={{
-                              height: 30,
+                              height: { xs: 13, sm: 30 },
+                              aspectRatio: "1 / 1",
                               minWidth: 0,
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              borderRadius: 0.7,
+                              borderRadius: { xs: 0.2, sm: 0.7 },
                               cursor: "pointer",
-                              border: isToday ? 1 : 0,
-                              borderColor: "primary.main",
+                              border: 0,
                               bgcolor:
-                                bucket > 0
+                                isToday
+                                  ? theme.palette.primary.main
+                                  : bucket > 0
                                   ? alpha(theme.palette.primary.main, bgAlpha)
                                   : "transparent",
-                              color: inMonth ? "text.primary" : "text.disabled",
-                              opacity: inMonth ? 1 : 0.62,
-                              fontSize: 12,
+                              color: isToday ? "#ffffff" : "text.primary",
+                              opacity: 1,
+                              fontSize: { xs: 9.5, sm: 12 },
                               fontWeight: isToday || bucket >= 4 ? 700 : 500,
                               ":hover": {
                                 bgcolor: alpha(
                                   theme.palette.primary.main,
-                                  bucket > 0 ? Math.min(bgAlpha + 0.08, 0.5) : 0.1,
+                                  isToday
+                                    ? 0.82
+                                    : bucket > 0
+                                      ? Math.min(bgAlpha + 0.08, 0.5)
+                                      : 0.1,
                                 ),
                               },
                             }}
@@ -2285,30 +2391,27 @@ export function TodoCalendar({
     setSelectedItemId(arg.event.id);
   };
 
-  const getTodoDropDate = useCallback(
-    (clientX: number, clientY: number): Date | null => {
-      const root = calendarSurfaceRef.current ?? rootRef.current;
-      if (!root) return null;
-      const elements =
-        typeof document.elementsFromPoint === "function"
-          ? document.elementsFromPoint(clientX, clientY)
-          : [document.elementFromPoint(clientX, clientY)].filter(Boolean);
+  const getTodoDropDate = useCallback((clientX: number, clientY: number): Date | null => {
+    const root = calendarSurfaceRef.current ?? rootRef.current;
+    if (!root) return null;
+    const elements =
+      typeof document.elementsFromPoint === "function"
+        ? document.elementsFromPoint(clientX, clientY)
+        : [document.elementFromPoint(clientX, clientY)].filter(Boolean);
 
-      for (const element of elements) {
-        if (!(element instanceof HTMLElement) || !root.contains(element)) continue;
-        const dateElement = element.closest<HTMLElement>("[data-date]");
-        if (!dateElement || !root.contains(dateElement)) continue;
-        const date = localDateKeyToDate(dateElement.getAttribute("data-date"));
-        if (date) return date;
-      }
+    for (const element of elements) {
+      if (!(element instanceof HTMLElement) || !root.contains(element)) continue;
+      const dateElement = element.closest<HTMLElement>("[data-date]");
+      if (!dateElement || !root.contains(dateElement)) continue;
+      const date = localDateKeyToDate(dateElement.getAttribute("data-date"));
+      if (date) return date;
+    }
 
-      const apiDate = calendarRef.current?.getApi().getDate();
-      return apiDate
-        ? new Date(apiDate.getFullYear(), apiDate.getMonth(), apiDate.getDate())
-        : null;
-    },
-    [],
-  );
+    const apiDate = calendarRef.current?.getApi().getDate();
+    return apiDate
+      ? new Date(apiDate.getFullYear(), apiDate.getMonth(), apiDate.getDate())
+      : null;
+  }, []);
 
   const getTodoDropStartMs = useCallback(
     (clientX: number, clientY: number, durationMs: number): number | null => {
@@ -2338,12 +2441,7 @@ export function TodoCalendar({
       date.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
       return date.getTime();
     },
-    [
-      calendarViewType,
-      getTodoDropDate,
-      todoDayTimeRange.slotMaxTime,
-      todoDayTimeRange.slotMinTime,
-    ],
+    [calendarViewType, getTodoDropDate, todoDayTimeRange.slotMaxTime, todoDayTimeRange.slotMinTime],
   );
 
   const applyTodoCalendarDrop = useCallback(
@@ -2387,13 +2485,11 @@ export function TodoCalendar({
 
   const calendarAccent = accentColor ?? theme.palette.primary.main;
   const calendarTodayBg = alpha(calendarAccent, isDark ? 0.14 : 0.08);
+  const calendarButtonActiveBg = alpha(calendarAccent, isDark ? 0.22 : 0.12);
+  const calendarButtonActiveBorder = alpha(calendarAccent, 0.45);
   const borderColor = alpha(isDark ? "#f8fafc" : "#0f172a", 0.1);
   const subtleBg = alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.04 : 0.035);
   const hoverBg = alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.08 : 0.06);
-  const calendarButtonBg = alpha(calendarAccent, isDark ? 0.18 : 0.07);
-  const calendarButtonBorder = alpha(calendarAccent, isDark ? 0.34 : 0.22);
-  const calendarButtonActiveBg = alpha(calendarAccent, isDark ? 0.3 : 0.14);
-  const calendarButtonActiveBorder = alpha(calendarAccent, isDark ? 0.56 : 0.42);
   const rootClassName = [
     "todo-calendar-root",
     isYearView ? "is-year-view" : "",
@@ -2403,6 +2499,1805 @@ export function TodoCalendar({
   ]
     .filter(Boolean)
     .join(" ");
+
+  const selectedDayKey = localDayKey(calendarDate);
+  const selectedDayItems = useMemo(
+    () =>
+      items
+        .filter(
+          (item) =>
+            item.deletedAt == null &&
+            item.dueAt != null &&
+            localDayKey(item.dueAt) === selectedDayKey &&
+            calendarVisibleListIds.has(item.listId) &&
+            (item.status === "pending" ||
+              (calendarShowCompleted && item.status === "completed")),
+        )
+        .sort((a, b) => {
+          if (a.status !== b.status) return a.status === "pending" ? -1 : 1;
+          if (a.dueAt != null && b.dueAt != null && a.dueAt !== b.dueAt) {
+            return a.dueAt - b.dueAt;
+          }
+          return a.order - b.order;
+        }),
+    [calendarShowCompleted, calendarVisibleListIds, items, selectedDayKey],
+  );
+  const mobileCalendarCells = useMemo(
+    () =>
+      mobileMonthExpanded
+        ? buildCalendarGridCells(calendarDate.getFullYear(), calendarDate.getMonth(), todoFirstDay)
+        : buildWeekCells(calendarDate, todoFirstDay),
+    [calendarDate, mobileMonthExpanded, todoFirstDay],
+  );
+  const mobileWeekdayLabels = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => WEEKDAY_LABELS[(todoFirstDay + index) % 7]),
+    [todoFirstDay],
+  );
+
+  const mobileTimeRange = useMemo(() => {
+    const startHour = clampNumber(Math.floor(todoDayStartHour), 0, 22);
+    const endHour = Math.max(
+      startHour + 1,
+      clampNumber(Math.floor(todoDayEndHour), 1, 23),
+    );
+    return {
+      startHour,
+      endHour,
+      hours: Array.from({ length: endHour - startHour + 1 }, (_, index) => startHour + index),
+    };
+  }, [todoDayEndHour, todoDayStartHour]);
+
+  useEffect(() => {
+    if (!isMobileCalendar && calendarViewType === MOBILE_OVERVIEW_VIEW) {
+      setCalendarViewType("dayGridMonth");
+    }
+  }, [calendarViewType, isMobileCalendar]);
+
+  useEffect(() => {
+    if (!isMobileCalendar) return;
+    const timer = window.setInterval(() => {
+      setMobileCalendarLabelTick((value) => value + 1);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [isMobileCalendar]);
+
+  const getMobileDayItems = useCallback(
+    (date: Date) => {
+      const dayKey = localDayKey(date);
+      return items
+        .filter(
+          (item) =>
+            item.deletedAt == null &&
+            item.dueAt != null &&
+            localDayKey(item.dueAt) === dayKey &&
+            calendarVisibleListIds.has(item.listId) &&
+            (item.status === "pending" ||
+              (calendarShowCompleted && item.status === "completed")),
+        )
+        .sort((a, b) => {
+          if (a.status !== b.status) return a.status === "pending" ? -1 : 1;
+          if (a.dueAt != null && b.dueAt != null && a.dueAt !== b.dueAt) {
+            return a.dueAt - b.dueAt;
+          }
+          return a.order - b.order;
+        });
+    },
+    [calendarShowCompleted, calendarVisibleListIds, items],
+  );
+
+  const getMobileEventColor = useCallback(
+    (item: TodoItemT) => MOBILE_EVENT_COLORS[hashStringToIndex(item.id, MOBILE_EVENT_COLORS.length)],
+    [],
+  );
+
+  useEffect(() => {
+    if (!mobileTimeSelection || !mobileTimeSelectionEditing) return;
+    const frame = window.requestAnimationFrame(() => {
+      mobileSelectionInputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [mobileTimeSelection, mobileTimeSelectionEditing]);
+
+  const snapMobileMinutes = useCallback(
+    (minutes: number) => {
+      const min = mobileTimeRange.startHour * 60;
+      const max = (mobileTimeRange.endHour + 1) * 60;
+      const snapped = Math.round(minutes / MOBILE_TIME_STEP_MINUTES) * MOBILE_TIME_STEP_MINUTES;
+      return clampNumber(snapped, min, max);
+    },
+    [mobileTimeRange.endHour, mobileTimeRange.startHour],
+  );
+
+  const getMobilePointerMinutes = useCallback(
+    (rect: DOMRect, clientY: number) => {
+      const minutes =
+        mobileTimeRange.startHour * 60 +
+        ((clientY - rect.top) / MOBILE_TIME_HOUR_HEIGHT) * 60;
+      return snapMobileMinutes(minutes);
+    },
+    [mobileTimeRange.startHour, snapMobileMinutes],
+  );
+
+  const normalizeMobileSelection = useCallback(
+    (dateKey: string, firstMinutes: number, secondMinutes: number): MobileTimeSelection => {
+      const min = mobileTimeRange.startHour * 60;
+      const max = (mobileTimeRange.endHour + 1) * 60;
+      let startMinutes = Math.min(firstMinutes, secondMinutes);
+      let endMinutes = Math.max(firstMinutes, secondMinutes);
+      if (endMinutes - startMinutes < MOBILE_TIME_MIN_DURATION_MINUTES) {
+        endMinutes = Math.min(max, startMinutes + MOBILE_TIME_MIN_DURATION_MINUTES);
+        if (endMinutes - startMinutes < MOBILE_TIME_MIN_DURATION_MINUTES) {
+          startMinutes = Math.max(min, endMinutes - MOBILE_TIME_MIN_DURATION_MINUTES);
+        }
+      }
+      return { dateKey, startMinutes, endMinutes };
+    },
+    [mobileTimeRange.endHour, mobileTimeRange.startHour],
+  );
+
+  const mobileSelectionToDraftRange = useCallback((selection: MobileTimeSelection) => {
+    const date = localDateKeyToDate(selection.dateKey) ?? calendarDate;
+    const start = new Date(date);
+    start.setHours(Math.floor(selection.startMinutes / 60), selection.startMinutes % 60, 0, 0);
+    const end = new Date(date);
+    end.setHours(Math.floor(selection.endMinutes / 60), selection.endMinutes % 60, 0, 0);
+    return { dueAt: start.getTime(), dueEndAt: end.getTime() };
+  }, [calendarDate]);
+
+  const mobileMinutesToTimestamp = useCallback((dateKey: string, minutes: number) => {
+    const date = localDateKeyToDate(dateKey) ?? calendarDate;
+    const value = new Date(date);
+    value.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+    return value.getTime();
+  }, [calendarDate]);
+
+  const getMobileItemRange = useCallback((item: TodoItemT) => {
+    const start = new Date(item.dueAt ?? calendarDate.getTime());
+    const startMinutes = start.getHours() * 60 + start.getMinutes();
+    const durationMinutes = Math.max(
+      MOBILE_TIME_MIN_DURATION_MINUTES,
+      Math.round(itemCalendarDurationMs(item) / 60000),
+    );
+    return {
+      dateKey: localDayKey(start),
+      startMinutes,
+      endMinutes: startMinutes + durationMinutes,
+    };
+  }, [calendarDate]);
+
+  const applyMobileEventRange = useCallback(
+    (itemId: string, dateKey: string, startMinutes: number, endMinutes: number) => {
+      const item = useTodoStore.getState().items.find((candidate) => candidate.id === itemId);
+      if (!item) return;
+      const min = mobileTimeRange.startHour * 60;
+      const max = (mobileTimeRange.endHour + 1) * 60;
+      const normalizedStart = clampNumber(startMinutes, min, max - MOBILE_TIME_MIN_DURATION_MINUTES);
+      const normalizedEnd = clampNumber(
+        Math.max(normalizedStart + MOBILE_TIME_MIN_DURATION_MINUTES, endMinutes),
+        normalizedStart + MOBILE_TIME_MIN_DURATION_MINUTES,
+        max,
+      );
+      setDueRange(
+        item.id,
+        mobileMinutesToTimestamp(dateKey, normalizedStart),
+        mobileMinutesToTimestamp(dateKey, normalizedEnd),
+        item.reminderEnabled,
+      );
+      setSelectedItemId(item.id);
+    },
+    [mobileMinutesToTimestamp, mobileTimeRange.endHour, mobileTimeRange.startHour, setDueRange, setSelectedItemId],
+  );
+
+  const clearMobileEventLongPress = useCallback(() => {
+    const current = mobileEventLongPressRef.current;
+    if (!current) return;
+    window.clearTimeout(current.timer);
+    mobileEventLongPressRef.current = null;
+  }, []);
+
+  const startMobileEventLongPress = useCallback(
+    (event: PointerEvent<HTMLDivElement>, item: TodoItemT) => {
+      event.stopPropagation();
+      if (event.button !== 0 || item.dueAt == null) return;
+      clearMobileEventLongPress();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const timer = window.setTimeout(() => {
+        setMobileSelectedEventId(item.id);
+        setMobileTimeSelection(null);
+        setMobileTimeSelectionContent("");
+        setMobileTimeSelectionEditing(false);
+        mobileEventLongPressRef.current = null;
+      }, MOBILE_EVENT_LONG_PRESS_MS);
+      mobileEventLongPressRef.current = {
+        timer,
+        itemId: item.id,
+        pointerId: event.pointerId,
+        startX,
+        startY,
+      };
+    },
+    [clearMobileEventLongPress],
+  );
+
+  const maybeCancelMobileEventLongPress = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const current = mobileEventLongPressRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientX - current.startX) > 8 || Math.abs(event.clientY - current.startY) > 8) {
+      window.clearTimeout(current.timer);
+      mobileEventLongPressRef.current = null;
+    }
+  }, []);
+
+  const finishMobileEventPress = useCallback((event: PointerEvent<HTMLDivElement>, itemId: string) => {
+    const current = mobileEventLongPressRef.current;
+    if (!current || current.pointerId !== event.pointerId) return false;
+    window.clearTimeout(current.timer);
+    mobileEventLongPressRef.current = null;
+    if (current.itemId === itemId) return true;
+    return false;
+  }, []);
+
+  const startMobileEventDrag = useCallback(
+    (event: PointerEvent<HTMLDivElement>, item: TodoItemT, mode: "move" | "start" | "end") => {
+      if (item.dueAt == null || mobileSelectedEventId !== item.id) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const column = event.currentTarget.closest("[data-mobile-time-column='true']");
+      if (!(column instanceof HTMLElement)) return;
+      const rect = column.getBoundingClientRect();
+      const range = getMobileItemRange(item);
+      mobileEventDragRef.current = {
+        itemId: item.id,
+        rect,
+        mode,
+        pointerId: event.pointerId,
+        anchorMinutes: getMobilePointerMinutes(rect, event.clientY),
+        originalStartMinutes: range.startMinutes,
+        originalEndMinutes: range.endMinutes,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [getMobileItemRange, getMobilePointerMinutes, mobileSelectedEventId],
+  );
+
+  const updateMobileEventDrag = useCallback(
+    (event: PointerEvent<HTMLDivElement>, dateKey: string) => {
+      const drag = mobileEventDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const pointerMinutes = getMobilePointerMinutes(drag.rect, event.clientY);
+      const delta = pointerMinutes - drag.anchorMinutes;
+      if (drag.mode === "move") {
+        applyMobileEventRange(
+          drag.itemId,
+          dateKey,
+          drag.originalStartMinutes + delta,
+          drag.originalEndMinutes + delta,
+        );
+        return;
+      }
+      if (drag.mode === "start") {
+        applyMobileEventRange(drag.itemId, dateKey, pointerMinutes, drag.originalEndMinutes);
+        return;
+      }
+      applyMobileEventRange(drag.itemId, dateKey, drag.originalStartMinutes, pointerMinutes);
+    },
+    [applyMobileEventRange, getMobilePointerMinutes],
+  );
+
+  const finishMobileEventDrag = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const drag = mobileEventDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    mobileEventDragRef.current = null;
+  }, []);
+
+  const submitMobileTimeSelectionContent = useCallback(() => {
+    if (!mobileTimeSelection) return;
+    const content = mobileTimeSelectionContent.trim();
+    if (!content) return;
+    const range = mobileSelectionToDraftRange(mobileTimeSelection);
+    const targetListId = listId || ensureDefaultList();
+    const item = addItem(targetListId, content);
+    if (item) {
+      setDueRange(item.id, range.dueAt, range.dueEndAt, false);
+      setSelectedItemId(item.id);
+    }
+    setMobileTimeSelection(null);
+    setMobileTimeSelectionContent("");
+    setMobileTimeSelectionEditing(false);
+  }, [
+    addItem,
+    ensureDefaultList,
+    listId,
+    mobileSelectionToDraftRange,
+    mobileTimeSelection,
+    mobileTimeSelectionContent,
+    setDueRange,
+  ]);
+
+  const startMobileTimeSelection = useCallback(
+    (event: PointerEvent<HTMLDivElement>, dateKey: string) => {
+      if (event.button !== 0 || draft) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = event.currentTarget.getBoundingClientRect();
+      const minutes = getMobilePointerMinutes(rect, event.clientY);
+      setMobileSelectedEventId(null);
+      setMobileTimeSelectionContent("");
+      setMobileTimeSelectionEditing(false);
+      mobileTimeDragRef.current = {
+        dateKey,
+        rect,
+        mode: "create",
+        pointerId: event.pointerId,
+        anchorMinutes: minutes,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setMobileTimeSelection(
+        normalizeMobileSelection(dateKey, minutes, minutes + MOBILE_TIME_MIN_DURATION_MINUTES),
+      );
+    },
+    [draft, getMobilePointerMinutes, normalizeMobileSelection],
+  );
+
+  const startMobileSelectionResize = useCallback(
+    (event: PointerEvent<HTMLDivElement>, mode: "start" | "end") => {
+      if (!mobileTimeSelection) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const column = event.currentTarget.closest("[data-mobile-time-column='true']");
+      if (!(column instanceof HTMLElement)) return;
+      const rect = column.getBoundingClientRect();
+      setMobileTimeSelectionEditing(false);
+      mobileTimeDragRef.current = {
+        dateKey: mobileTimeSelection.dateKey,
+        rect,
+        mode,
+        pointerId: event.pointerId,
+        anchorMinutes:
+          mode === "start" ? mobileTimeSelection.endMinutes : mobileTimeSelection.startMinutes,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [mobileTimeSelection],
+  );
+
+  const updateMobileTimeSelection = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const drag = mobileTimeDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const minutes = getMobilePointerMinutes(drag.rect, event.clientY);
+      if (drag.mode === "start" || drag.mode === "end") {
+        setMobileTimeSelection(
+          normalizeMobileSelection(drag.dateKey, drag.anchorMinutes, minutes),
+        );
+        return;
+      }
+      setMobileTimeSelection(normalizeMobileSelection(drag.dateKey, drag.anchorMinutes, minutes));
+    },
+    [getMobilePointerMinutes, normalizeMobileSelection],
+  );
+
+  const finishMobileTimeSelection = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const drag = mobileTimeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    mobileTimeDragRef.current = null;
+    setMobileTimeSelectionEditing(true);
+  }, []);
+
+  const goMobileCalendarByStep = useCallback(
+    (delta: number) => {
+      setCalendarDate((current) => {
+        if (calendarViewType === "todoYear") return addLocalYears(current, delta);
+        if (calendarViewType === "timeGridDay") {
+          return new Date(addLocalDaysMs(current.getTime(), delta));
+        }
+        if (calendarViewType === "dayGridWeek" || calendarViewType === "customWeeks") {
+          return new Date(addLocalDaysMs(current.getTime(), delta * 7));
+        }
+        if (calendarViewType === "customDays") {
+          return new Date(addLocalDaysMs(current.getTime(), delta * customDayCount));
+        }
+        if (calendarViewType === "customAgenda") {
+          return new Date(addLocalDaysMs(current.getTime(), delta * agendaDayCount));
+        }
+        return addLocalMonths(current, delta);
+      });
+    },
+    [agendaDayCount, calendarViewType, customDayCount],
+  );
+
+  const handleMobileCalendarTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    mobileCalendarPanStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: window.performance.now(),
+    };
+  };
+
+  const handleMobileCalendarTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    if (event.changedTouches.length !== 1) return;
+    const start = mobileCalendarPanStartRef.current;
+    mobileCalendarPanStartRef.current = null;
+    if (!start) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const elapsed = window.performance.now() - start.time;
+    if (elapsed > 850) return;
+    if (Math.abs(dx) >= 58 && Math.abs(dx) > Math.abs(dy) * 1.25) {
+      goMobileCalendarByStep(dx > 0 ? -1 : 1);
+      return;
+    }
+    if (
+      (calendarViewType === MOBILE_OVERVIEW_VIEW || calendarViewType === "dayGridMonth") &&
+      Math.abs(dy) >= 42 &&
+      Math.abs(dy) > Math.abs(dx) * 1.2
+    ) {
+      setMobileMonthExpanded(dy > 0);
+    }
+  };
+
+  const getMobileCalendarViewIcon = () => {
+    if (calendarViewType === "timeGridDay" || calendarViewType === "customDays") {
+      return <CalendarViewIcon kind="day" />;
+    }
+    if (calendarViewType === "dayGridWeek" || calendarViewType === "customWeeks") {
+      return <CalendarViewIcon kind="week" />;
+    }
+    if (calendarViewType === "dayGridMonth" || calendarViewType === "customMonths") {
+      return <CalendarViewIcon kind="month" />;
+    }
+    if (calendarViewType === "todoYear") {
+      return <CalendarViewIcon kind="year" />;
+    }
+    if (calendarViewType === "customAgenda") {
+      return <CalendarViewIcon kind="agenda" />;
+    }
+    return <CalendarViewIcon kind="overview" />;
+  };
+
+  const mobileHeaderButtonSx = {
+    width: 38,
+    height: 38,
+    minWidth: 38,
+    borderRadius: "50%",
+    color: "text.primary",
+    bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.08 : 0.055),
+    "&:hover": {
+      bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.12 : 0.08),
+    },
+  };
+
+  const renderMobileHeaderActions = () => (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexShrink: 0 }}>
+      <Button
+        onClick={() => setCalendarDate(new Date())}
+        sx={{
+          ...mobileHeaderButtonSx,
+          fontSize: 13,
+          fontWeight: 850,
+          p: 0,
+          lineHeight: 1,
+        }}
+      >
+        今天
+      </Button>
+      <IconButton
+        aria-label="切换日历视图"
+        onClick={(event) => setViewMenuAnchor(event.currentTarget)}
+        sx={mobileHeaderButtonSx}
+      >
+        {getMobileCalendarViewIcon()}
+      </IconButton>
+      <IconButton
+        aria-label="更多"
+        onClick={(event) => setMobileCalendarMenuAnchor(event.currentTarget)}
+        sx={mobileHeaderButtonSx}
+      >
+        <MoreVertRoundedIcon sx={{ fontSize: 24 }} />
+      </IconButton>
+    </Box>
+  );
+
+  void renderMobileHeaderActions;
+
+  const renderMobileOverviewView = () => (
+    <Box
+      onTouchStart={handleMobileCalendarTouchStart}
+      onTouchEnd={handleMobileCalendarTouchEnd}
+      sx={{
+        position: "relative",
+        flex: 1,
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+        px: 3,
+        pb: 2,
+        bgcolor: isDark ? "#0f172a" : "#edf4f8",
+        color: "text.primary",
+        overflow: "hidden",
+        touchAction: "pan-x pan-y",
+      }}
+    >
+      <Box
+        sx={{
+          flexShrink: 0,
+          height: 76,
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+        }}
+      >
+        <Typography sx={{ flex: 1, fontSize: 28, fontWeight: 850, lineHeight: 1.1 }}>
+          {calendarDate.getMonth() + 1}月
+        </Typography>
+        <IconButton
+          aria-label="跳转到今天"
+          onClick={() => setCalendarDate(new Date())}
+          sx={{
+            ...mobileHeaderButtonSx,
+            p: 0,
+            fontSize: 13,
+            fontWeight: 850,
+            lineHeight: 1,
+          }}
+        >
+          今
+        </IconButton>
+        <IconButton
+          aria-label="切换日历视图"
+          onClick={(event) => setViewMenuAnchor(event.currentTarget)}
+          sx={mobileHeaderButtonSx}
+        >
+          {getMobileCalendarViewIcon()}
+        </IconButton>
+        <IconButton
+          aria-label="更多"
+          onClick={(event) => setMobileCalendarMenuAnchor(event.currentTarget)}
+          sx={mobileHeaderButtonSx}
+        >
+          <MoreVertRoundedIcon sx={{ fontSize: 24 }} />
+        </IconButton>
+      </Box>
+
+      <Box
+        onTouchStart={handleMobileCalendarTouchStart}
+        onTouchEnd={handleMobileCalendarTouchEnd}
+        sx={{
+          flexShrink: 0,
+          display: "grid",
+          gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+          rowGap: mobileMonthExpanded ? 0.8 : 0.6,
+          alignItems: "center",
+          touchAction: "pan-x pan-y",
+        }}
+      >
+        {mobileWeekdayLabels.map((label) => (
+          <Typography
+            key={label}
+            sx={{
+              height: 22,
+              textAlign: "center",
+              fontSize: 14,
+              fontWeight: 650,
+              color: "text.secondary",
+            }}
+          >
+            {label}
+          </Typography>
+        ))}
+        {mobileCalendarCells.map((date) => {
+          const key = localDayKey(date);
+          const inMonth = date.getMonth() === calendarDate.getMonth();
+          const selected = key === selectedDayKey;
+          const today = key === localDayKey(new Date());
+          const count = dayTaskCounts.get(key) ?? 0;
+          const meta = todoShowChineseCalendar ? getChineseCalendarMeta(date) : null;
+          const lunarLabel = todoShowLunarCalendar ? formatLunarDateLabel(date) : null;
+          const smallLabels = [
+            meta?.holidayName,
+            meta?.solarTerm && meta.solarTerm !== meta?.holidayName ? meta.solarTerm : null,
+            lunarLabel && lunarLabel !== meta?.holidayName && lunarLabel !== meta?.solarTerm
+              ? lunarLabel
+              : null,
+          ].filter(Boolean).slice(0, 2) as string[];
+          const rotatingLabel =
+            smallLabels.length > 0
+              ? smallLabels[mobileCalendarLabelTick % smallLabels.length]
+              : "";
+          const holidayRest = Boolean(meta?.isHolidayRestDay);
+          const weekend = Boolean(meta?.isWeekend);
+          const selectedOtherDay = selected && !today;
+          return (
+            <Box
+              key={key}
+              component="button"
+              type="button"
+              onClick={() => setCalendarDate(new Date(date))}
+              sx={{
+                height: mobileMonthExpanded ? 48 : 52,
+                minWidth: 0,
+                p: 0,
+                border: 0,
+                bgcolor: "transparent",
+                color: inMonth ? "text.primary" : "text.disabled",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "flex-start",
+                font: "inherit",
+                cursor: "pointer",
+                WebkitTapHighlightColor: "transparent",
+                appearance: "none",
+                outline: "none",
+                userSelect: "none",
+                "&:focus, &:focus-visible, &:active": {
+                  outline: "none",
+                  bgcolor: "transparent",
+                },
+              }}
+            >
+              <Box
+                sx={{
+                  width: 42,
+                  height: 42,
+                  position: "relative",
+                  borderRadius: 2.2,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: selectedOtherDay
+                    ? `1.5px solid ${theme.palette.primary.main}`
+                    : "1.5px solid transparent",
+                  bgcolor: today
+                    ? theme.palette.primary.main
+                    : holidayRest
+                      ? alpha(theme.palette.primary.main, isDark ? 0.16 : 0.09)
+                      : "transparent",
+                  color: today
+                    ? "#fff"
+                    : weekend || holidayRest
+                      ? "primary.main"
+                      : "inherit",
+                  boxShadow: today ? `0 8px 20px ${alpha(theme.palette.primary.main, 0.32)}` : "none",
+                }}
+              >
+                {meta?.isHolidayRestDay && (
+                  <Box
+                    component="span"
+                    sx={{
+                      position: "absolute",
+                      top: -2,
+                      right: -2,
+                      width: 14,
+                      height: 14,
+                      borderRadius: "50%",
+                      display: "grid",
+                      placeItems: "center",
+                      bgcolor: theme.palette.primary.main,
+                      color: "#fff",
+                      fontSize: 8,
+                      fontWeight: 850,
+                      lineHeight: 1,
+                      boxShadow: `0 2px 6px ${alpha(theme.palette.primary.main, 0.32)}`,
+                    }}
+                  >
+                    休
+                  </Box>
+                )}
+                {meta?.isAdjustedWorkday && (
+                  <Box
+                    component="span"
+                    sx={{
+                      position: "absolute",
+                      top: -2,
+                      right: -2,
+                      width: 14,
+                      height: 14,
+                      borderRadius: "50%",
+                      display: "grid",
+                      placeItems: "center",
+                      bgcolor: "#f59e0b",
+                      color: "#fff",
+                      fontSize: 8,
+                      fontWeight: 850,
+                      lineHeight: 1,
+                    }}
+                  >
+                    班
+                  </Box>
+                )}
+                <Typography
+                  component="span"
+                  sx={{
+                    fontSize: selected ? 19 : 18,
+                    lineHeight: 1,
+                    fontWeight: selected || today ? 750 : 560,
+                  }}
+                >
+                  {date.getDate()}
+                </Typography>
+                {!selected && rotatingLabel && (
+                  <Box
+                    sx={{
+                      mt: 0.2,
+                      width: 44,
+                      display: "flex",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Typography
+                      component="span"
+                      sx={{
+                        maxWidth: 44,
+                        fontSize: 9.2,
+                        lineHeight: 1,
+                        color: rotatingLabel === meta?.holidayName ? "#14b8a6" : "primary.main",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {rotatingLabel}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+              <Box
+                sx={{
+                  mt: 0.25,
+                  width: count > 1 ? 10 : 5,
+                  height: 5,
+                  borderRadius: 999,
+                  bgcolor: theme.palette.primary.main,
+                  opacity: !selected && count > 0 ? 1 : 0,
+                }}
+              />
+            </Box>
+          );
+        })}
+      </Box>
+
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", pt: 1.8, pb: 12 }}>
+        <Box
+          sx={{
+            borderRadius: 3,
+            bgcolor: isDark ? alpha("#f8fafc", 0.08) : "#fff",
+            boxShadow: isDark ? "none" : "0 10px 30px rgba(15, 23, 42, 0.045)",
+            px: 2,
+            py: 1.35,
+          }}
+        >
+          <Typography sx={{ mb: 1, fontSize: 18, fontWeight: 800 }}>
+            {selectedDayKey === localDayKey(new Date()) ? "今天" : `${calendarDate.getDate()}日`}
+          </Typography>
+          {selectedDayItems.length === 0 ? (
+            <Typography sx={{ py: 2.4, fontSize: 14, color: "text.disabled", textAlign: "center" }}>
+              当天没有待办
+            </Typography>
+          ) : (
+            selectedDayItems.map((item) => (
+              <Box
+                key={item.id}
+                onClick={() => openEditDialog(item.id)}
+                sx={{
+                  minHeight: 40,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                }}
+              >
+                <Checkbox
+                  checked={item.status === "completed"}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => toggleEventStatus(item.id, item.status)}
+                  sx={{
+                    p: 0,
+                    color: alpha(isDark ? "#f8fafc" : "#0f172a", 0.34),
+                    "& .MuiSvgIcon-root": { fontSize: 22 },
+                  }}
+                />
+                <Typography
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    fontSize: 17,
+                    lineHeight: 1.2,
+                    fontWeight: 650,
+                    color: item.status === "completed" ? "text.disabled" : "text.primary",
+                    textDecoration: item.status === "completed" ? "line-through" : "none",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {item.content || "未命名待办"}
+                </Typography>
+                <Typography sx={{ fontSize: 13, color: "primary.main", flexShrink: 0 }}>
+                  {selectedDayKey === localDayKey(new Date()) ? "今天" : `${calendarDate.getMonth() + 1}/${calendarDate.getDate()}`}
+                </Typography>
+              </Box>
+            ))
+          )}
+        </Box>
+      </Box>
+
+      <Fab
+        color="primary"
+        aria-label="新建待办"
+        onClick={() => openCreateForDate(calendarDate)}
+        sx={{
+          position: "absolute",
+          right: 26,
+          bottom: 24,
+          width: 76,
+          height: 76,
+          boxShadow: "0 14px 32px rgba(37, 99, 235, 0.32)",
+        }}
+      >
+        <AddRoundedIcon sx={{ fontSize: 42 }} />
+      </Fab>
+    </Box>
+  );
+
+  const renderMobileHeader = (title: string) => (
+    <Box
+      sx={{
+        flexShrink: 0,
+        minHeight: 66,
+        display: "flex",
+        alignItems: "center",
+        gap: 1,
+      }}
+    >
+      <Typography sx={{ flex: 1, minWidth: 0, fontSize: 22, fontWeight: 850, lineHeight: 1.1 }}>
+        {title}
+      </Typography>
+      <Button
+        onClick={() => setCalendarDate(new Date())}
+        sx={{
+          ...mobileHeaderButtonSx,
+          p: 0,
+          fontSize: 13,
+          fontWeight: 850,
+          lineHeight: 1,
+        }}
+      >
+        今天
+      </Button>
+      <IconButton
+        aria-label="切换日历视图"
+        onClick={(event) => setViewMenuAnchor(event.currentTarget)}
+        sx={mobileHeaderButtonSx}
+      >
+        {getMobileCalendarViewIcon()}
+      </IconButton>
+      <IconButton
+        aria-label="更多"
+        onClick={(event) => setMobileCalendarMenuAnchor(event.currentTarget)}
+        sx={mobileHeaderButtonSx}
+      >
+        <MoreVertRoundedIcon sx={{ fontSize: 24 }} />
+      </IconButton>
+    </Box>
+  );
+
+  const renderMobileMonthGrid = (expanded: boolean) => {
+    const cells = expanded
+      ? buildCalendarGridCells(calendarDate.getFullYear(), calendarDate.getMonth(), todoFirstDay)
+      : buildWeekCells(calendarDate, todoFirstDay);
+    const todayKey = localDayKey(new Date());
+    return (
+      <Box
+        onTouchStart={handleMobileCalendarTouchStart}
+        onTouchEnd={handleMobileCalendarTouchEnd}
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+          columnGap: expanded ? 0.7 : 0.9,
+          rowGap: expanded ? 1.15 : 0.7,
+          touchAction: "pan-x pan-y",
+        }}
+      >
+        {mobileWeekdayLabels.map((label) => (
+          <Typography
+            key={label}
+            sx={{
+              height: 18,
+              textAlign: "center",
+              fontSize: 12,
+              fontWeight: 700,
+              color: "text.secondary",
+            }}
+          >
+            {label}
+          </Typography>
+        ))}
+        {cells.map((date) => {
+          const key = localDayKey(date);
+          const selected = key === selectedDayKey;
+          const inMonth = date.getMonth() === calendarDate.getMonth();
+          const dayItems = getMobileDayItems(date).slice(0, expanded ? 3 : 2);
+          const meta = todoShowChineseCalendar ? getChineseCalendarMeta(date) : null;
+          const lunarLabel = todoShowLunarCalendar ? formatLunarDateLabel(date) : null;
+          const labelOptions = [
+            meta?.holidayName,
+            meta?.solarTerm && meta.solarTerm !== meta?.holidayName ? meta.solarTerm : null,
+            lunarLabel && lunarLabel !== meta?.holidayName && lunarLabel !== meta?.solarTerm
+              ? lunarLabel
+              : null,
+          ].filter(Boolean).slice(0, 2) as string[];
+          const rotatingLabel =
+            labelOptions.length > 0
+              ? labelOptions[mobileCalendarLabelTick % labelOptions.length]
+              : "";
+          const today = key === todayKey;
+          const holidayRest = Boolean(meta?.isHolidayRestDay);
+          const weekend = Boolean(meta?.isWeekend);
+          const selectedOtherDay = selected && !today;
+          return (
+            <Box
+              key={key}
+              component="button"
+              type="button"
+              onClick={() => setCalendarDate(new Date(date))}
+              sx={{
+                minHeight: expanded ? 54 : 58,
+                p: 0,
+                border: 0,
+                bgcolor: "transparent",
+                color: inMonth ? "text.primary" : "text.disabled",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 0.45,
+                font: "inherit",
+                WebkitTapHighlightColor: "transparent",
+                appearance: "none",
+                outline: "none",
+                userSelect: "none",
+                "&:focus, &:focus-visible, &:active": { outline: "none", bgcolor: "transparent" },
+              }}
+            >
+              <Box
+                sx={{
+                  width: expanded ? 36 : 42,
+                  height: expanded ? 34 : 38,
+                  position: "relative",
+                  borderRadius: 2.1,
+                  display: "grid",
+                  placeItems: "center",
+                  color: today
+                    ? "#fff"
+                    : weekend || holidayRest
+                      ? "primary.main"
+                      : "inherit",
+                  border: selectedOtherDay
+                    ? `1.5px solid ${theme.palette.primary.main}`
+                    : "1.5px solid transparent",
+                  bgcolor: today
+                    ? theme.palette.primary.main
+                    : holidayRest
+                      ? alpha(theme.palette.primary.main, isDark ? 0.16 : 0.09)
+                      : "transparent",
+                  fontSize: expanded ? 13 : 15,
+                  fontWeight: selected || today ? 850 : 700,
+                  boxShadow: today ? `0 8px 18px ${alpha(theme.palette.primary.main, 0.28)}` : "none",
+                }}
+              >
+                {meta?.isHolidayRestDay && (
+                  <Box
+                    component="span"
+                    sx={{
+                      position: "absolute",
+                      top: -2,
+                      right: -2,
+                      width: expanded ? 12 : 14,
+                      height: expanded ? 12 : 14,
+                      borderRadius: "50%",
+                      display: "grid",
+                      placeItems: "center",
+                      bgcolor: theme.palette.primary.main,
+                      color: "#fff",
+                      fontSize: expanded ? 7 : 8,
+                      fontWeight: 850,
+                      lineHeight: 1,
+                    }}
+                  >
+                    休
+                  </Box>
+                )}
+                {meta?.isAdjustedWorkday && (
+                  <Box
+                    component="span"
+                    sx={{
+                      position: "absolute",
+                      top: -2,
+                      right: -2,
+                      width: expanded ? 12 : 14,
+                      height: expanded ? 12 : 14,
+                      borderRadius: "50%",
+                      display: "grid",
+                      placeItems: "center",
+                      bgcolor: "#f59e0b",
+                      color: "#fff",
+                      fontSize: expanded ? 7 : 8,
+                      fontWeight: 850,
+                      lineHeight: 1,
+                    }}
+                  >
+                    班
+                  </Box>
+                )}
+                {date.getDate()}
+              </Box>
+              {rotatingLabel && (
+                <Typography
+                  component="span"
+                  sx={{
+                    maxWidth: "100%",
+                    minHeight: expanded ? 9 : 11,
+                    mt: -0.25,
+                    fontSize: expanded ? 8 : 9,
+                    lineHeight: 1,
+                    color: rotatingLabel === meta?.holidayName ? "#14b8a6" : "primary.main",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {rotatingLabel}
+                </Typography>
+              )}
+              <Box sx={{ width: "100%", minHeight: expanded ? 16 : 10, display: "grid", gap: 0.35 }}>
+                {dayItems.map((item) => (
+                  <Box
+                    key={item.id}
+                    sx={{
+                      mx: expanded ? 0.3 : 0.6,
+                      height: expanded ? 4 : 5,
+                      borderRadius: 999,
+                      bgcolor: getMobileEventColor(item),
+                      opacity: item.status === "completed" ? 0.45 : 0.78,
+                    }}
+                  />
+                ))}
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+    );
+  };
+
+  const renderMobileMonthView = () => (
+    <Box
+      onTouchStart={handleMobileCalendarTouchStart}
+      onTouchEnd={handleMobileCalendarTouchEnd}
+      sx={{
+        flex: 1,
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+        px: 2.4,
+        pb: 2,
+        bgcolor: isDark ? "#0f172a" : "#f3f8fc",
+        overflow: "hidden",
+        touchAction: "pan-x pan-y",
+      }}
+    >
+      {renderMobileHeader(`${calendarDate.getMonth() + 1}月`)}
+      <Box
+        sx={{
+          flexShrink: 0,
+          pt: 0.4,
+          pb: mobileMonthExpanded ? 0.6 : 1.1,
+          transition: "padding 180ms ease",
+        }}
+      >
+        {renderMobileMonthGrid(mobileMonthExpanded)}
+      </Box>
+      {!mobileMonthExpanded && (
+        <Box
+          sx={{
+            mt: 0.6,
+            flex: 1,
+            minHeight: 0,
+            borderRadius: 3.2,
+            bgcolor: isDark ? alpha("#f8fafc", 0.075) : "#fff",
+            boxShadow: isDark ? "none" : "0 12px 32px rgba(15, 23, 42, 0.055)",
+            px: 1.3,
+            py: 1.1,
+            overflow: "auto",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          <Typography sx={{ px: 0.6, mb: 0.8, fontSize: 17, fontWeight: 850 }}>
+            {selectedDayKey === localDayKey(new Date()) ? "今天" : `${calendarDate.getDate()}日`}
+          </Typography>
+          {selectedDayItems.length === 0 ? (
+            <Typography sx={{ py: 2.2, fontSize: 14, color: "text.disabled", textAlign: "center" }}>
+              当天没有待办
+            </Typography>
+          ) : (
+            selectedDayItems.map((item) => (
+              <Box
+                key={item.id}
+                onClick={() => openEditDialog(item.id)}
+                sx={{
+                  minHeight: 38,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.85,
+                  borderRadius: 2,
+                  mb: 0.45,
+                  px: 0.55,
+                  py: 0.35,
+                  bgcolor: "transparent",
+                  WebkitTapHighlightColor: "transparent",
+                }}
+              >
+                <Checkbox
+                  checked={item.status === "completed"}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => toggleEventStatus(item.id, item.status)}
+                  sx={{
+                    p: 0,
+                    color: alpha(isDark ? "#f8fafc" : "#0f172a", 0.32),
+                    "& .MuiSvgIcon-root": { fontSize: 20 },
+                    flexShrink: 0,
+                  }}
+                />
+                <Box
+                  sx={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    bgcolor: getMobileEventColor(item),
+                    flexShrink: 0,
+                  }}
+                />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: 14,
+                    lineHeight: 1.2,
+                    fontWeight: 650,
+                    color: item.status === "completed" ? "text.disabled" : "text.primary",
+                    textDecoration: item.status === "completed" ? "line-through" : "none",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {item.content || "未命名待办"}
+                </Typography>
+                  {item.note.trim() && (
+                    <Typography
+                      sx={{
+                        mt: 0.25,
+                        fontSize: 11.5,
+                        lineHeight: 1.15,
+                        color: "text.secondary",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.note.trim()}
+                    </Typography>
+                  )}
+                </Box>
+                <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "primary.main", flexShrink: 0 }}>
+                  {item.dueAt ? formatEventTime(new Date(item.dueAt), item.dueEndAt ? new Date(item.dueEndAt) : null, item.dueEndAt != null) : ""}
+                </Typography>
+              </Box>
+            ))
+          )}
+        </Box>
+      )}
+      <Fab
+        color="primary"
+        aria-label="新建待办"
+        onClick={() => openCreateForDate(calendarDate)}
+        sx={{ position: "absolute", right: 24, bottom: 24, width: 62, height: 62 }}
+      >
+        <AddRoundedIcon sx={{ fontSize: 34 }} />
+      </Fab>
+    </Box>
+  );
+
+  const getMobileTimeGridDates = () => {
+    if (calendarViewType === "dayGridWeek") return buildWeekCells(calendarDate, todoFirstDay);
+    if (calendarViewType === "customWeeks") {
+      const start = buildWeekCells(calendarDate, todoFirstDay)[0];
+      return Array.from({ length: customWeekCount * 7 }, (_, index) =>
+        new Date(addLocalDaysMs(start.getTime(), index)),
+      );
+    }
+    if (calendarViewType === "customDays") {
+      return Array.from({ length: customDayCount }, (_, index) =>
+        new Date(addLocalDaysMs(calendarDate.getTime(), index)),
+      );
+    }
+    return [calendarDate];
+  };
+
+  const renderMobileTimeGridView = () => {
+    const dates = getMobileTimeGridDates();
+    const headerDates =
+      calendarViewType === "timeGridDay" ? buildWeekCells(calendarDate, todoFirstDay) : dates;
+    const isSingleDayTimeGrid = dates.length === 1;
+    const isStandardWeekTimeGrid = calendarViewType === "dayGridWeek" && dates.length === 7;
+    const mobileTimeAxisWidth = isStandardWeekTimeGrid ? 34 : 42;
+    const totalHeight =
+      Math.max(1, mobileTimeRange.endHour - mobileTimeRange.startHour + 1) *
+      MOBILE_TIME_HOUR_HEIGHT;
+    const gridColumns =
+      isSingleDayTimeGrid
+        ? "minmax(0, 1fr)"
+        : isStandardWeekTimeGrid
+          ? "repeat(7, minmax(0, 1fr))"
+          : `repeat(${dates.length}, minmax(${dates.length > 3 ? 82 : 92}px, 1fr))`;
+    const timeGridMinWidth = isStandardWeekTimeGrid
+      ? "100%"
+      : dates.length > 3
+        ? dates.length * 82 + mobileTimeAxisWidth
+        : "100%";
+    return (
+      <Box
+        onTouchStart={handleMobileCalendarTouchStart}
+        onTouchEnd={handleMobileCalendarTouchEnd}
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          px: isStandardWeekTimeGrid ? 1.45 : 2.1,
+          pb: 2,
+          bgcolor: isDark ? "#0f172a" : "#f7fafc",
+          overflow: "hidden",
+          touchAction: "pan-x pan-y",
+        }}
+      >
+        {renderMobileHeader(`${calendarDate.getMonth() + 1}月`)}
+        <Box
+          sx={{
+            flexShrink: 0,
+            display: "grid",
+            gridTemplateColumns: `${mobileTimeAxisWidth}px ${
+              calendarViewType === "timeGridDay"
+                ? "repeat(7, minmax(0, 1fr))"
+                : gridColumns
+            }`,
+            minWidth:
+              calendarViewType === "timeGridDay"
+                ? "100%"
+                : timeGridMinWidth,
+            pb: 1,
+            overflowX: isStandardWeekTimeGrid ? "visible" : "auto",
+            scrollbarWidth: "none",
+            "&::-webkit-scrollbar": { display: "none" },
+          }}
+        >
+          <Box />
+          {headerDates.map((date) => {
+            const key = localDayKey(date);
+            const selected = key === selectedDayKey;
+            const today = key === localDayKey(new Date());
+            return (
+              <Box
+                key={key}
+                component="button"
+                type="button"
+                onClick={() => setCalendarDate(new Date(date))}
+                sx={{
+                  minWidth: 0,
+                  p: 0,
+                  border: 0,
+                  bgcolor: "transparent",
+                  color: "text.primary",
+                  display: "grid",
+                  justifyItems: "center",
+                  gap: 0.45,
+                  font: "inherit",
+                  WebkitTapHighlightColor: "transparent",
+                  appearance: "none",
+                  outline: "none",
+                  userSelect: "none",
+                  "&:focus, &:focus-visible, &:active": { outline: "none", bgcolor: "transparent" },
+                }}
+              >
+                <Typography sx={{ fontSize: 11.5, color: "text.secondary", fontWeight: 700 }}>
+                  {WEEKDAY_LABELS[date.getDay()]}
+                </Typography>
+                <Box
+                  sx={{
+                    minWidth: 24,
+                    height: 24,
+                    px: 0.55,
+                    borderRadius: 999,
+                    display: "grid",
+                    placeItems: "center",
+                    color: today ? "#fff" : selected ? "primary.main" : "text.primary",
+                    bgcolor: today
+                      ? theme.palette.primary.main
+                      : selected
+                        ? alpha(theme.palette.primary.main, isDark ? 0.22 : 0.1)
+                        : "transparent",
+                    fontSize: 13,
+                    fontWeight: selected || today ? 850 : 720,
+                  }}
+                >
+                  {date.getDate()}
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", pb: 10 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: `${mobileTimeAxisWidth}px ${gridColumns}`, minWidth: timeGridMinWidth }}>
+            <Box sx={{ position: "relative", height: totalHeight }}>
+              {mobileTimeRange.hours.map((hour, index) => (
+                <Typography
+                  key={hour}
+                  sx={{
+                    position: "absolute",
+                    top: index * MOBILE_TIME_HOUR_HEIGHT + 2,
+                    left: 0,
+                    fontSize: isStandardWeekTimeGrid ? 10.5 : 12,
+                    fontWeight: 700,
+                    color: "text.disabled",
+                  }}
+                >
+                  {hour.toString().padStart(2, "0")}
+                </Typography>
+              ))}
+            </Box>
+            {dates.map((date) => (
+              <Box
+                key={localDayKey(date)}
+                data-mobile-time-column="true"
+                onPointerDown={(event) => startMobileTimeSelection(event, localDayKey(date))}
+                onPointerMove={updateMobileTimeSelection}
+                onPointerUp={finishMobileTimeSelection}
+                onPointerCancel={finishMobileTimeSelection}
+                sx={{
+                  position: "relative",
+                  height: totalHeight,
+                  borderLeft: `1px solid ${alpha(
+                    isDark ? "#f8fafc" : "#0f172a",
+                    isStandardWeekTimeGrid ? 0.045 : 0.06,
+                  )}`,
+                  backgroundColor: isDark ? alpha("#f8fafc", 0.015) : alpha("#fff", 0.72),
+                  backgroundImage: `linear-gradient(to bottom, ${alpha(
+                    isDark ? "#f8fafc" : "#0f172a",
+                    isStandardWeekTimeGrid ? 0.055 : 0.07,
+                  )} 1px, transparent 1px)`,
+                  backgroundSize: `100% ${MOBILE_TIME_HOUR_HEIGHT}px`,
+                  touchAction: "none",
+                  WebkitTapHighlightColor: "transparent",
+                  userSelect: "none",
+                }}
+              >
+                {getMobileDayItems(date).map((item) => {
+                  const start = new Date(item.dueAt ?? date.getTime());
+                  const end =
+                    item.dueEndAt != null && item.dueEndAt > (item.dueAt ?? 0)
+                      ? new Date(item.dueEndAt)
+                      : new Date((item.dueAt ?? date.getTime()) + DEFAULT_EVENT_DURATION_MS);
+                  const startOffset =
+                    (start.getHours() + start.getMinutes() / 60 - mobileTimeRange.startHour) *
+                    MOBILE_TIME_HOUR_HEIGHT;
+                  const height = Math.max(
+                    34,
+                    (itemCalendarDurationMs(item) / (60 * 60 * 1000)) *
+                      MOBILE_TIME_HOUR_HEIGHT,
+                  );
+                  const isSelectedEvent = mobileSelectedEventId === item.id;
+                  const itemColor = getMobileEventColor(item);
+                  const timeLabel = formatEventTime(start, end, true);
+                  const description = noteHtmlToText(item.note) || "无描述";
+                  return (
+                    <Box
+                      key={item.id}
+                      onPointerDown={(event) => {
+                        if (isSelectedEvent) {
+                          startMobileEventDrag(event, item, "move");
+                        } else {
+                          startMobileEventLongPress(event, item);
+                        }
+                      }}
+                      onPointerMove={(event) => {
+                        if (isSelectedEvent) {
+                          updateMobileEventDrag(event, localDayKey(date));
+                        } else {
+                          maybeCancelMobileEventLongPress(event);
+                        }
+                      }}
+                      onPointerUp={(event) => {
+                        if (isSelectedEvent) {
+                          finishMobileEventDrag(event);
+                          return;
+                        }
+                        finishMobileEventPress(event, item.id);
+                      }}
+                      onPointerCancel={(event) => {
+                        clearMobileEventLongPress();
+                        finishMobileEventDrag(event);
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (mobileSelectedEventId === item.id) return;
+                        openEditDialog(item.id);
+                      }}
+                      sx={{
+                        position: "absolute",
+                        left: isStandardWeekTimeGrid ? 2 : 4,
+                        right: isStandardWeekTimeGrid ? 2 : 4,
+                        top: clampNumber(startOffset, 0, totalHeight - 36),
+                        height: Math.min(height, totalHeight),
+                        borderRadius: isStandardWeekTimeGrid ? 1.1 : 1.5,
+                        bgcolor: alpha(
+                          itemColor,
+                          item.status === "completed" ? 0.3 : isStandardWeekTimeGrid ? 0.5 : 0.82,
+                        ),
+                        border: isSelectedEvent
+                          ? `1px solid ${alpha("#fff", isDark ? 0.72 : 0.9)}`
+                          : "1px solid transparent",
+                        boxShadow: isSelectedEvent
+                          ? `0 16px 34px ${alpha(itemColor, 0.34)}`
+                          : isStandardWeekTimeGrid
+                            ? "none"
+                            : `0 8px 16px ${alpha(itemColor, 0.18)}`,
+                        p: isSingleDayTimeGrid ? 1 : isStandardWeekTimeGrid ? 0.45 : 0.65,
+                        overflow: "visible",
+                        WebkitTapHighlightColor: "transparent",
+                        touchAction: "none",
+                        userSelect: "none",
+                        zIndex: isSelectedEvent ? 6 : 2,
+                      }}
+                    >
+                      {isSelectedEvent && (
+                        <Box
+                          onPointerDown={(event) => startMobileEventDrag(event, item, "start")}
+                          onPointerMove={(event) => updateMobileEventDrag(event, localDayKey(date))}
+                          onPointerUp={finishMobileEventDrag}
+                          onPointerCancel={finishMobileEventDrag}
+                          sx={{
+                            position: "absolute",
+                            left: "50%",
+                            top: -8,
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            transform: "translateX(-50%)",
+                            bgcolor: itemColor,
+                            border: "3px solid #fff",
+                            boxShadow: `0 5px 14px ${alpha(itemColor, 0.34)}`,
+                            touchAction: "none",
+                          }}
+                        />
+                      )}
+                      <Typography
+                        sx={{
+                          fontSize: isSingleDayTimeGrid ? 13 : isStandardWeekTimeGrid ? 9.5 : 11,
+                          lineHeight: 1.15,
+                          fontWeight: 850,
+                          color: "#1f2937",
+                        }}
+                        noWrap
+                      >
+                        {item.content || "未命名待办"}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          mt: 0.25,
+                          fontSize: isSingleDayTimeGrid ? 11 : isStandardWeekTimeGrid ? 8.5 : 9.5,
+                          lineHeight: 1.1,
+                          fontWeight: 750,
+                          color: alpha("#1f2937", 0.72),
+                        }}
+                        noWrap
+                      >
+                        {timeLabel}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          mt: 0.25,
+                          fontSize: isSingleDayTimeGrid ? 11 : isStandardWeekTimeGrid ? 8.5 : 9.5,
+                          lineHeight: 1.1,
+                          color: alpha("#1f2937", 0.62),
+                        }}
+                        noWrap
+                      >
+                        {description}
+                      </Typography>
+                      {isSelectedEvent && (
+                        <Box
+                          onPointerDown={(event) => startMobileEventDrag(event, item, "end")}
+                          onPointerMove={(event) => updateMobileEventDrag(event, localDayKey(date))}
+                          onPointerUp={finishMobileEventDrag}
+                          onPointerCancel={finishMobileEventDrag}
+                          sx={{
+                            position: "absolute",
+                            left: "50%",
+                            bottom: -8,
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            transform: "translateX(-50%)",
+                            bgcolor: itemColor,
+                            border: "3px solid #fff",
+                            boxShadow: `0 5px 14px ${alpha(itemColor, 0.34)}`,
+                            touchAction: "none",
+                          }}
+                        />
+                      )}
+                    </Box>
+                  );
+                })}
+                {mobileTimeSelection?.dateKey === localDayKey(date) &&
+                  (() => {
+                    const selectionTop =
+                      ((mobileTimeSelection.startMinutes - mobileTimeRange.startHour * 60) / 60) *
+                      MOBILE_TIME_HOUR_HEIGHT;
+                    const selectionHeight =
+                      ((mobileTimeSelection.endMinutes - mobileTimeSelection.startMinutes) / 60) *
+                      MOBILE_TIME_HOUR_HEIGHT;
+                    const startLabel = `${Math.floor(mobileTimeSelection.startMinutes / 60)
+                      .toString()
+                      .padStart(2, "0")}:${(mobileTimeSelection.startMinutes % 60)
+                      .toString()
+                      .padStart(2, "0")}`;
+                    const endLabel = `${Math.floor(mobileTimeSelection.endMinutes / 60)
+                      .toString()
+                      .padStart(2, "0")}:${(mobileTimeSelection.endMinutes % 60)
+                      .toString()
+                      .padStart(2, "0")}`;
+                    return (
+                      <Box
+                        onPointerDown={(event) => event.stopPropagation()}
+                        sx={{
+                          position: "absolute",
+                          left: 5,
+                          right: 5,
+                          top: clampNumber(selectionTop, 0, totalHeight - 36),
+                          height: Math.max(36, selectionHeight),
+                          borderRadius: 1.4,
+                          bgcolor: isDark ? alpha("#e5e7eb", 0.18) : alpha("#d1d5db", 0.78),
+                          border: `1px solid ${alpha(isDark ? "#f8fafc" : "#9ca3af", 0.34)}`,
+                          boxShadow: `0 14px 28px ${alpha("#0f172a", isDark ? 0.24 : 0.12)}`,
+                          zIndex: 5,
+                          overflow: "visible",
+                          p: 0.7,
+                        }}
+                      >
+                        <Box
+                          onPointerDown={(event) => startMobileSelectionResize(event, "start")}
+                          onPointerMove={updateMobileTimeSelection}
+                          onPointerUp={finishMobileTimeSelection}
+                          onPointerCancel={finishMobileTimeSelection}
+                          sx={{
+                            position: "absolute",
+                            left: "50%",
+                            top: -8,
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            transform: "translateX(-50%)",
+                            bgcolor: theme.palette.primary.main,
+                            border: "3px solid #fff",
+                            boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.28)}`,
+                            touchAction: "none",
+                          }}
+                        />
+                        <TextField
+                          inputRef={mobileSelectionInputRef}
+                          value={mobileTimeSelectionContent}
+                          onChange={(event) => setMobileTimeSelectionContent(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              submitMobileTimeSelectionContent();
+                            }
+                            if (event.key === "Escape") {
+                              setMobileTimeSelection(null);
+                              setMobileTimeSelectionContent("");
+                              setMobileTimeSelectionEditing(false);
+                            }
+                          }}
+                          onBlur={() => {
+                            if (mobileTimeSelectionContent.trim()) {
+                              submitMobileTimeSelectionContent();
+                            }
+                          }}
+                          placeholder="准备做什么?"
+                          variant="standard"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          fullWidth
+                          slotProps={{
+                            input: {
+                              disableUnderline: true,
+                              sx: {
+                                color: isDark ? "#f8fafc" : "#111827",
+                                fontSize: dates.length === 1 ? 15 : 13,
+                                fontWeight: 750,
+                              },
+                            },
+                          }}
+                          sx={{
+                            mb: 0.35,
+                            px: 0.2,
+                            "& input::placeholder": {
+                              color: alpha(isDark ? "#f8fafc" : "#111827", 0.5),
+                              opacity: 1,
+                            },
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            px: 0.2,
+                            fontSize: dates.length === 1 ? 11 : 10,
+                            fontWeight: 750,
+                            color: alpha(isDark ? "#f8fafc" : "#111827", 0.7),
+                          }}
+                          noWrap
+                        >
+                          添加 · {startLabel}-{endLabel}
+                        </Typography>
+                        <Box
+                          onPointerDown={(event) => startMobileSelectionResize(event, "end")}
+                          onPointerMove={updateMobileTimeSelection}
+                          onPointerUp={finishMobileTimeSelection}
+                          onPointerCancel={finishMobileTimeSelection}
+                          sx={{
+                            position: "absolute",
+                            left: "50%",
+                            bottom: -8,
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            transform: "translateX(-50%)",
+                            bgcolor: theme.palette.primary.main,
+                            border: "3px solid #fff",
+                            boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.28)}`,
+                            touchAction: "none",
+                          }}
+                        />
+                      </Box>
+                    );
+                  })()}
+              </Box>
+            ))}
+          </Box>
+        </Box>
+        <Fab
+          color="primary"
+          aria-label="新建待办"
+          onClick={() => openCreateForDate(calendarDate)}
+          sx={{ position: "absolute", right: 24, bottom: 24, width: 62, height: 62 }}
+        >
+          <AddRoundedIcon sx={{ fontSize: 34 }} />
+        </Fab>
+      </Box>
+    );
+  };
+
+  const renderMobileAgendaView = () => {
+    const dates = Array.from({ length: agendaDayCount }, (_, index) =>
+      new Date(addLocalDaysMs(calendarDate.getTime(), index)),
+    );
+    return (
+      <Box
+        onTouchStart={handleMobileCalendarTouchStart}
+        onTouchEnd={handleMobileCalendarTouchEnd}
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          px: 2.4,
+          pb: 2,
+          bgcolor: isDark ? "#0f172a" : "#f3f8fc",
+          overflow: "hidden",
+          touchAction: "pan-x pan-y",
+        }}
+      >
+        {renderMobileHeader("日程")}
+        <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", pb: 10 }}>
+          {dates.map((date) => {
+            const dayItems = getMobileDayItems(date);
+            return (
+              <Box key={localDayKey(date)} sx={{ py: 1.4 }}>
+                <Typography sx={{ mb: 1, fontSize: 17, fontWeight: 850 }}>
+                  {date.getMonth() + 1}月{date.getDate()}日
+                </Typography>
+                {dayItems.length === 0 ? (
+                  <Typography sx={{ py: 1, fontSize: 13, color: "text.disabled" }}>暂无待办</Typography>
+                ) : (
+                  dayItems.map((item) => (
+                    <Box
+                      key={item.id}
+                      onClick={() => openEditDialog(item.id)}
+                      sx={{
+                        minHeight: 44,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        borderRadius: 2,
+                        px: 1.3,
+                        bgcolor: isDark ? alpha("#f8fafc", 0.08) : "#fff",
+                        mb: 0.8,
+                        WebkitTapHighlightColor: "transparent",
+                      }}
+                    >
+                      <Box sx={{ width: 8, height: 28, borderRadius: 999, bgcolor: getMobileEventColor(item) }} />
+                      <Typography sx={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 650 }} noWrap>
+                        {item.content || "未命名待办"}
+                      </Typography>
+                    </Box>
+                  ))
+                )}
+              </Box>
+            );
+          })}
+        </Box>
+        <Fab
+          color="primary"
+          aria-label="新建待办"
+          onClick={() => openCreateForDate(calendarDate)}
+          sx={{ position: "absolute", right: 24, bottom: 24, width: 62, height: 62 }}
+        >
+          <AddRoundedIcon sx={{ fontSize: 34 }} />
+        </Fab>
+      </Box>
+    );
+  };
+
+  const renderMobileYearView = () => (
+    <Box
+      onTouchStart={handleMobileCalendarTouchStart}
+      onTouchEnd={handleMobileCalendarTouchEnd}
+      sx={{
+        flex: 1,
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+        bgcolor: isDark ? "#0f172a" : "#edf4f8",
+        overflow: "hidden",
+        touchAction: "pan-x pan-y",
+      }}
+    >
+      {renderYearView()}
+    </Box>
+  );
+
+  const mobileCalendarView =
+    calendarViewType === "todoYear"
+      ? renderMobileYearView()
+      : calendarViewType === "timeGridDay" ||
+          calendarViewType === "dayGridWeek" ||
+          calendarViewType === "customDays" ||
+          calendarViewType === "customWeeks"
+        ? renderMobileTimeGridView()
+        : calendarViewType === "dayGridMonth" || calendarViewType === "customMonths"
+          ? renderMobileMonthView()
+          : calendarViewType === "customAgenda"
+            ? renderMobileAgendaView()
+            : renderMobileOverviewView();
 
   return (
     <Box
@@ -2414,68 +4309,76 @@ export function TodoCalendar({
         position: "relative",
         display: "flex",
         flexDirection: "column",
-        p: compact ? 0 : 1,
+        p: { xs: 0, sm: compact ? 0 : 1 },
         "--fc-border-color": borderColor,
         "--fc-page-bg-color": "transparent",
         "--fc-neutral-bg-color": subtleBg,
         "--fc-today-bg-color": calendarTodayBg,
         "--fc-now-indicator-color": theme.palette.error.main,
         "--fc-list-event-hover-bg-color": hoverBg,
-        "--fc-classic-button": calendarButtonBg,
-        "--fc-classic-button-border": calendarButtonBorder,
-        "--fc-classic-button-strong": calendarButtonActiveBg,
-        "--fc-classic-button-strong-border": calendarButtonActiveBorder,
-        "--fc-classic-button-outline": alpha(calendarAccent, 0.48),
-        "--fc-classic-button-foreground": theme.palette.text.primary,
-        "--fc-classic-primary": calendarAccent,
-        "--fc-classic-primary-foreground": theme.palette.getContrastText(calendarAccent),
-        "--fc-classic-event": calendarAccent,
-        "--fc-classic-event-contrast": theme.palette.getContrastText(calendarAccent),
-        "--fc-classic-highlight": alpha(calendarAccent, isDark ? 0.24 : 0.14),
-        "--fc-classic-today": calendarTodayBg,
-        "--fc-classic-now": theme.palette.error.main,
-        "--fc-classic-background": "transparent",
-        "--fc-classic-faint": subtleBg,
-        "--fc-classic-muted": hoverBg,
-        "--fc-classic-strong": alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.16 : 0.12),
-        "--fc-classic-foreground": theme.palette.text.primary,
-        "--fc-classic-faint-foreground": theme.palette.text.disabled,
-        "--fc-classic-muted-foreground": theme.palette.text.secondary,
-        "--fc-classic-border": borderColor,
-        "--fc-classic-strong-border": alpha(isDark ? "#f8fafc" : "#0f172a", 0.22),
         "--separator-border": inboxPaneCollapsed ? "transparent" : borderColor,
-        "& .todo-calendar-fullcalendar, & .fc": {
+        "& .fc": {
           height: "100%",
           color: "text.primary",
           fontFamily: theme.typography.fontFamily,
           fontSize: 13,
         },
-        "&.is-year-view .todo-calendar-fullcalendar, &.is-year-view .fc": {
+        "&.is-year-view .fc": {
           height: "auto !important",
           minHeight: "0 !important",
         },
-        "&.is-year-view .todo-calendar-fullcalendar > div:nth-of-type(n + 2)": {
-          display: "none !important",
-          height: "0 !important",
-          minHeight: "0 !important",
-          overflow: "hidden !important",
-        },
         "& .fc .fc-toolbar.fc-header-toolbar": {
-          minHeight: compact ? 38 : 44,
+          minHeight: { xs: "auto", sm: compact ? 38 : 44 },
           mb: 0,
-          px: compact ? 0.6 : 1,
-          pb: compact ? 0.6 : 1,
-          gap: 1,
+          px: { xs: 1, sm: compact ? 0.6 : 1 },
+          pt: { xs: 0.7, sm: 0 },
+          pb: { xs: 0.8, sm: compact ? 0.6 : 1 },
+          gap: { xs: 0.6, sm: 1 },
+          rowGap: { xs: 0.7, sm: 1 },
+          flexWrap: { xs: "wrap", sm: "nowrap" },
+          alignItems: { xs: "center", sm: "center" },
           borderBottom: 1,
           borderColor,
         },
+        "&.is-year-view .fc .fc-toolbar.fc-header-toolbar": {
+          display: { xs: "none", sm: "flex" },
+        },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk": {
+          minWidth: 0,
+          display: "flex",
+          alignItems: "center",
+        },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(1)": {
+          order: { xs: 1, sm: 0 },
+          flex: { xs: "0 0 auto", sm: "0 1 auto" },
+        },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(2)": {
+          order: { xs: 1, sm: 0 },
+          flex: { xs: "1 1 0", sm: "0 1 auto" },
+          justifyContent: { xs: "center", sm: "center" },
+        },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(3)": {
+          order: { xs: 2, sm: 0 },
+          flex: { xs: "1 0 100%", sm: "0 1 auto" },
+          width: { xs: "100%", sm: "auto" },
+          display: "flex",
+          gap: { xs: 0.6, sm: 0 },
+          justifyContent: { xs: "stretch", sm: "flex-end" },
+        },
+        "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(3) .fc-button": {
+          flex: { xs: "1 1 0", sm: "0 0 auto" },
+        },
         "& .fc .fc-toolbar-title": {
-          fontSize: compact ? 14 : 17,
+          minWidth: 0,
+          fontSize: { xs: 18, sm: compact ? 14 : 17 },
           fontWeight: 700,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         },
         "& .fc .fc-button": {
-          height: compact ? 26 : 30,
-          px: compact ? 0.8 : 1.1,
+          height: { xs: 36, sm: compact ? 26 : 30 },
+          px: { xs: 0.9, sm: compact ? 0.8 : 1.1 },
           py: 0,
           borderRadius: "4px",
           borderColor,
@@ -2483,7 +4386,7 @@ export function TodoCalendar({
           color: "text.secondary",
           boxShadow: "none",
           textTransform: "none",
-          fontSize: compact ? 12 : 13,
+          fontSize: { xs: 13, sm: compact ? 12 : 13 },
           fontWeight: 600,
         },
         "& .fc .fc-button:hover": {
@@ -2496,12 +4399,12 @@ export function TodoCalendar({
           bgcolor: calendarButtonActiveBg,
           color: calendarAccent,
         },
-        "& .todo-calendar-view-shortcut-button.is-selected, &.is-year-view .todo-calendar-view-shortcut-button.is-year-view-button": {
-          borderColor: `${calendarButtonActiveBorder} !important`,
-          bgcolor: `${calendarButtonActiveBg} !important`,
-          color: `${calendarAccent} !important`,
+        "&.is-year-view .fc .fc-yearView-button": {
+          borderColor: calendarButtonActiveBorder,
+          bgcolor: calendarButtonActiveBg,
+          color: calendarAccent,
         },
-        "& .todo-calendar-year-title-button, & .todo-calendar-year-title-button:hover, & .todo-calendar-year-title-button:active, & .fc .fc-yearTitle-button, & .fc .fc-yearTitle-button:hover, & .fc .fc-yearTitle-button:active": {
+        "& .fc .fc-yearTitle-button, & .fc .fc-yearTitle-button:hover, & .fc .fc-yearTitle-button:active": {
           borderColor: "transparent",
           bgcolor: "transparent",
           color: "text.primary",
@@ -2516,7 +4419,7 @@ export function TodoCalendar({
           color: "text.disabled",
           opacity: 1,
         },
-        "& .todo-calendar-inbox-toggle-button, & .fc .fc-inboxToggle-button": {
+        "& .fc .fc-inboxToggle-button": {
           width: compact ? 26 : 30,
           minWidth: compact ? 26 : 30,
           px: "0 !important",
@@ -2525,15 +4428,15 @@ export function TodoCalendar({
           justifyContent: "center",
           fontSize: 0,
         },
-        "& .todo-calendar-inbox-toggle-icon": {
+        "& .fc .fc-inboxToggle-button::before": {
+          content: '""',
           width: compact ? 16 : 18,
           height: compact ? 16 : 18,
-          display: "block",
           bgcolor: "currentColor",
           WebkitMask: `${CALENDAR_INBOX_COLLAPSE_ICON} center / contain no-repeat`,
           mask: `${CALENDAR_INBOX_COLLAPSE_ICON} center / contain no-repeat`,
         },
-        "&.is-inbox-collapsed .todo-calendar-inbox-toggle-icon": {
+        "&.is-inbox-collapsed .fc .fc-inboxToggle-button::before": {
           WebkitMask: `${CALENDAR_INBOX_EXPAND_ICON} center / contain no-repeat`,
           mask: `${CALENDAR_INBOX_EXPAND_ICON} center / contain no-repeat`,
         },
@@ -2588,15 +4491,12 @@ export function TodoCalendar({
           textDecoration: "none",
         },
         "& .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number": {
-          color: "primary.main",
+          color: calendarAccent,
           fontWeight: 800,
         },
-        "& .todo-calendar-accent-button, & .fc .fc-listFilter-button, & .fc .fc-importCalendar-button, & .fc .fc-viewPicker-button": {
-          borderColor: `${alpha(calendarAccent, 0.35)} !important`,
-          color: `${calendarAccent} !important`,
-        },
-        "& .todo-calendar-accent-button:hover": {
-          bgcolor: `${alpha(calendarAccent, isDark ? 0.18 : 0.08)} !important`,
+        "& .fc .fc-listFilter-button, & .fc .fc-importCalendar-button, & .fc .fc-viewPicker-button, & .fc .fc-calendarMore-button": {
+          borderColor: alpha(calendarAccent, 0.35),
+          color: calendarAccent,
         },
         "& .fc .fc-timegrid-slot-label, & .fc .fc-list-day-text, & .fc .fc-list-day-side-text": {
           color: "text.secondary",
@@ -2689,19 +4589,6 @@ export function TodoCalendar({
           cursor: "pointer",
           boxShadow: "none",
         },
-        "& .todo-calendar-event.is-todo": {
-          bgcolor: "var(--todo-calendar-event-bg, var(--fc-event-color)) !important",
-          borderColor: "var(--todo-calendar-event-border, var(--fc-event-color)) !important",
-          color: "var(--todo-calendar-event-text, inherit) !important",
-        },
-        "& .todo-calendar-event.is-todo .fc-event-main, & .todo-calendar-event.is-todo .todo-calendar-event-content": {
-          color: "var(--todo-calendar-event-text, inherit) !important",
-        },
-        "& .fc .fc-list-event.todo-calendar-event.is-todo > *": {
-          bgcolor: "var(--todo-calendar-event-bg, var(--fc-event-color)) !important",
-          borderColor: "var(--todo-calendar-event-border, var(--fc-event-color)) !important",
-          color: "var(--todo-calendar-event-text, inherit) !important",
-        },
         "& .todo-calendar-event .fc-event-main": {
           color: "inherit",
         },
@@ -2730,9 +4617,6 @@ export function TodoCalendar({
           lineHeight: 1.35,
           fontWeight: 700,
           opacity: 0.82,
-        },
-        "& .todo-calendar-todo-event-time": {
-          whiteSpace: "nowrap",
         },
         "& .todo-calendar-todo-event-content .todo-calendar-event-title": {
           flexBasis: 0,
@@ -2884,108 +4768,10 @@ export function TodoCalendar({
         },
       }}
     >
-      <TodoCalendarDragPreviewLayer items={items} isDark={isDark} />
-      <GlobalStyles
-        styles={{
-          ".todo-calendar-more-popover": {
-            position: "fixed !important",
-            top: "50vh !important",
-            left: "50vw !important",
-            right: "auto !important",
-            bottom: "auto !important",
-            transform: "translate(-50%, -50%) !important",
-            width: "min(420px, calc(100vw - 48px))",
-            maxWidth: "calc(100vw - 48px)",
-            maxHeight: "min(72vh, 520px)",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            boxSizing: "border-box",
-            backgroundColor: theme.palette.background.paper,
-            border: `1px solid ${borderColor}`,
-            borderRadius: "8px",
-            boxShadow: theme.shadows[8],
-            color: theme.palette.text.primary,
-            zIndex: `${theme.zIndex.modal + 1} !important`,
-          },
-          ".todo-calendar-more-popover > div:nth-of-type(2)": {
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            minHeight: "40px",
-            padding: "8px 10px",
-            backgroundColor: subtleBg,
-            borderBottom: `1px solid ${borderColor}`,
-            color: theme.palette.text.primary,
-          },
-          ".todo-calendar-more-popover > div:nth-of-type(2) > div:first-of-type": {
-            flex: "1 1 auto",
-            minWidth: 0,
-            fontWeight: 700,
-          },
-          ".todo-calendar-more-popover > div:nth-of-type(2) button": {
-            width: "28px",
-            height: "28px",
-            minWidth: "28px",
-            border: 0,
-            borderRadius: "6px",
-            color: theme.palette.text.secondary,
-            backgroundColor: "transparent",
-          },
-          ".todo-calendar-more-popover > div:nth-of-type(2) button:hover": {
-            color: theme.palette.text.primary,
-            backgroundColor: hoverBg,
-          },
-          ".todo-calendar-more-popover > div:nth-of-type(3)": {
-            flex: "1 1 auto",
-            minHeight: 0,
-            padding: "6px",
-            overflowY: "auto",
-            overscrollBehavior: "contain",
-            backgroundColor: theme.palette.background.paper,
-          },
-          ".todo-calendar-event.is-drag-preview, .todo-calendar-event.fc-3l, .todo-calendar-event.fc-Yl, .todo-calendar-event.fc-event-mirror, .todo-calendar-event.fc-event-dragging, .todo-calendar-event.fc-event-resizing": {
-            boxSizing: "border-box !important",
-            maxWidth: "100% !important",
-            overflow: "hidden !important",
-          },
-          ".todo-calendar-event.is-drag-preview .fc-event-main, .todo-calendar-event.fc-3l .fc-event-main, .todo-calendar-event.fc-Yl .fc-event-main, .todo-calendar-event.fc-event-mirror .fc-event-main, .todo-calendar-event.fc-event-dragging .fc-event-main, .todo-calendar-event.fc-event-resizing .fc-event-main": {
-            minWidth: "0 !important",
-            maxWidth: "100% !important",
-            overflow: "hidden !important",
-          },
-          ".todo-calendar-event.is-drag-preview .todo-calendar-event-content, .todo-calendar-event.fc-3l .todo-calendar-event-content, .todo-calendar-event.fc-Yl .todo-calendar-event-content, .todo-calendar-event.fc-event-mirror .todo-calendar-event-content, .todo-calendar-event.fc-event-dragging .todo-calendar-event-content, .todo-calendar-event.fc-event-resizing .todo-calendar-event-content": {
-            boxSizing: "border-box !important",
-            minWidth: "0 !important",
-            maxWidth: "100% !important",
-            height: "100% !important",
-            maxHeight: "100% !important",
-            display: "flex !important",
-            alignItems: "center !important",
-            flexWrap: "nowrap !important",
-            whiteSpace: "nowrap !important",
-            overflow: "hidden !important",
-          },
-          ".todo-calendar-event.is-drag-preview .MuiIconButton-root, .todo-calendar-event.fc-3l .MuiIconButton-root, .todo-calendar-event.fc-Yl .MuiIconButton-root, .todo-calendar-event.fc-event-mirror .MuiIconButton-root, .todo-calendar-event.fc-event-dragging .MuiIconButton-root, .todo-calendar-event.fc-event-resizing .MuiIconButton-root": {
-            width: "18px !important",
-            height: "18px !important",
-            padding: "0 !important",
-            flexShrink: "0 !important",
-          },
-          ".todo-calendar-event.is-drag-preview .todo-calendar-event-time, .todo-calendar-event.fc-3l .todo-calendar-event-time, .todo-calendar-event.fc-Yl .todo-calendar-event-time, .todo-calendar-event.fc-event-mirror .todo-calendar-event-time, .todo-calendar-event.fc-event-dragging .todo-calendar-event-time, .todo-calendar-event.fc-event-resizing .todo-calendar-event-time": {
-            flexShrink: "0 !important",
-            whiteSpace: "nowrap !important",
-          },
-          ".todo-calendar-event.is-drag-preview .todo-calendar-event-title, .todo-calendar-event.fc-3l .todo-calendar-event-title, .todo-calendar-event.fc-Yl .todo-calendar-event-title, .todo-calendar-event.fc-event-mirror .todo-calendar-event-title, .todo-calendar-event.fc-event-dragging .todo-calendar-event-title, .todo-calendar-event.fc-event-resizing .todo-calendar-event-title": {
-            minWidth: "0 !important",
-            flex: "1 1 auto !important",
-            overflow: "hidden !important",
-            textOverflow: "ellipsis !important",
-            whiteSpace: "nowrap !important",
-          },
-        }}
-      />
+      {isMobileCalendar ? (
+        mobileCalendarView
+      ) : (
+        <>
       {isYearView && (
         <Fab
           color="primary"
@@ -3096,6 +4882,8 @@ export function TodoCalendar({
           <Allotment.Pane className="calendar-main-pane" minSize={showInboxToggle ? 420 : 0}>
             <Box
               ref={calendarSurfaceRef}
+              onTouchStart={handleCalendarTouchStart}
+              onTouchEnd={handleCalendarTouchEnd}
               sx={{
                 position: "relative",
                 width: "100%",
@@ -3105,21 +4893,16 @@ export function TodoCalendar({
                 display: "flex",
                 flexDirection: "column",
                 overflow: "hidden",
+                touchAction: isMobileCalendar ? "pan-y" : undefined,
                 outline: isTodoDragOver
                   ? `2px solid ${alpha(theme.palette.primary.main, 0.55)}`
                   : "2px solid transparent",
                 outlineOffset: -2,
                 transition: "outline-color 120ms ease",
-                "& > .todo-calendar-fullcalendar, & > .fc": {
+                "& > .fc": {
                   flex: isYearView ? "0 0 auto" : "1 1 auto",
                   minHeight: 0,
                   height: isYearView ? "auto !important" : "100%",
-                },
-                "& > .todo-calendar-fullcalendar > div:nth-of-type(n + 2)": {
-                  display: isYearView ? "none !important" : undefined,
-                  height: isYearView ? "0 !important" : undefined,
-                  minHeight: isYearView ? "0 !important" : undefined,
-                  overflow: isYearView ? "hidden !important" : undefined,
                 },
                 "& .fc-view-harness": {
                   display: isYearView ? "none !important" : undefined,
@@ -3129,10 +4912,8 @@ export function TodoCalendar({
                 },
               }}
             >
-          <FullCalendar
+          <FullCalendarAny
             ref={calendarRef}
-            className="todo-calendar-fullcalendar"
-            popoverClass="todo-calendar-more-popover"
             plugins={FULLCALENDAR_PLUGINS}
             locale={zhCnLocale}
             timeZone="local"
@@ -3147,117 +4928,93 @@ export function TodoCalendar({
             selectMirror
             editable
             eventDurationEditable
-            dayMaxEvents={false}
-            dayMaxEventRows={false}
+            dayMaxEvents
             slotEventOverlap={false}
             eventMaxStack={compact ? 2 : 4}
             allDaySlot={false}
             businessHours={todoDayTimeRange.businessHours}
             slotMinTime={todoDayTimeRange.slotMinTime}
             slotMaxTime={todoDayTimeRange.slotMaxTime}
-            slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-            slotHeaderContent={renderSlotLabel}
+            slotLabelFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+            slotLabelContent={renderSlotLabel}
             eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-            buttons={{
+            customButtons={{
               inboxToggle: {
-                display: "icon",
-                iconContent: () => (
-                  <Box component="span" className="todo-calendar-inbox-toggle-icon" />
-                ),
-                className: () => "todo-calendar-inbox-toggle-button",
                 text: "",
                 hint: inboxPaneCollapsed ? "展开收集箱" : "隐藏收集箱",
                 click: toggleInboxPaneCollapsed,
               },
-              today: {
+              calendarToday: {
                 text: "今天",
-                click: (event: MouseEvent) => {
-                  event.preventDefault();
-                  goCalendarToday();
-                },
+                click: goCalendarToday,
               },
-              prev: {
-                text: "<",
-                hint: "上一页",
-                click: (event: MouseEvent) => {
-                  event.preventDefault();
-                  goCalendarByStep(-1);
-                },
+              calendarPrev: {
+                icon: "chevron-left",
+                click: () => goCalendarByStep(-1),
               },
-              next: {
-                text: ">",
-                hint: "下一页",
-                click: (event: MouseEvent) => {
-                  event.preventDefault();
-                  goCalendarByStep(1);
-                },
+              calendarNext: {
+                icon: "chevron-right",
+                click: () => goCalendarByStep(1),
               },
               yearToday: {
                 text: "今天",
                 click: goTodayInYearView,
               },
               yearPrev: {
-                text: "<",
-                hint: "上一年",
+                icon: "chevron-left",
                 click: () => goYear(-1),
               },
               yearNext: {
-                text: ">",
-                hint: "下一年",
+                icon: "chevron-right",
                 click: () => goYear(1),
               },
               yearTitle: {
-                className: () => "todo-calendar-year-title-button",
                 text: `${calendarDate.getFullYear()}年`,
                 click: () => {},
               },
               listFilter: {
-                className: () => "todo-calendar-accent-button",
                 text: listFilterButtonText,
-                click: (event: MouseEvent) =>
-                  setListFilterMenuAnchor(event.currentTarget as HTMLElement),
+                click: (_event: MouseEvent, element: HTMLElement) => setListFilterMenuAnchor(element),
               },
               importCalendar: {
-                className: () => "todo-calendar-accent-button",
                 text: "导入",
-                click: (event: MouseEvent) =>
-                  setSubscriptionMenuAnchor(event.currentTarget as HTMLElement),
+                click: (_event: MouseEvent, element: HTMLElement) =>
+                  setSubscriptionMenuAnchor(element),
               },
               viewPicker: {
-                className: () => "todo-calendar-accent-button",
-                text: viewPickerLabel,
-                click: (event: MouseEvent) =>
-                  setViewMenuAnchor(event.currentTarget as HTMLElement),
+                text: viewPickerButtonText,
+                click: (_event: MouseEvent, element: HTMLElement) => setViewMenuAnchor(element),
+              },
+              calendarMore: {
+                text: "更多",
+                click: (_event: MouseEvent, element: HTMLElement) =>
+                  setMobileCalendarMenuAnchor(element),
               },
               yearView: {
-                className: () =>
-                  [
-                    "todo-calendar-view-shortcut-button",
-                    "is-year-view-button",
-                    isYearView ? "is-selected" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" "),
                 text: "年",
                 click: () => changeCalendarView("todoYear"),
               },
             }}
             headerToolbar={{
-              left: showInboxToggle
-                ? "inboxToggle today prev,next"
-                : "today prev,next",
+              left: isMobileCalendar
+                ? "calendarToday"
+                : showInboxToggle
+                ? "inboxToggle calendarToday calendarPrev,calendarNext"
+                : "calendarToday calendarPrev,calendarNext",
               center: isYearView ? "yearTitle" : "title",
-              right: compact
+              right: isMobileCalendar
+                ? "viewPicker calendarMore"
+                : compact
                 ? ""
                 : "listFilter importCalendar viewPicker timeGridDay,dayGridWeek,dayGridMonth,yearView,customAgenda",
             }}
-            todayText="今天"
-            dayText="日"
-            weekTextShort="周"
-            weekTextLong="周"
-            monthText="月"
-            yearText="年"
-            listText="议程"
+            buttonText={{
+              today: "今天",
+              day: "日",
+              week: "周",
+              month: "月",
+              list: "议程",
+            }}
             views={{
               customDays: {
                 type: "timeGrid",
@@ -3286,7 +5043,7 @@ export function TodoCalendar({
                 noEventsContent: "没有带日期的待办",
               },
             }}
-            datesSet={(arg) => {
+            datesSet={(arg: { start: Date; view: { type: string } }) => {
               setCalendarDate(calendarRef.current?.getApi().getDate() ?? arg.start);
               setCalendarViewType((current) => {
                 if (current === "todoYear" && keepYearViewOnNextDatesSetRef.current) {
@@ -3304,53 +5061,24 @@ export function TodoCalendar({
             eventDrop={onEventDrop}
             eventResize={onEventResize}
             eventContent={renderCalendarEvent}
-            eventDidMount={(arg: EventContentArg & { el: HTMLElement }) => {
+            eventDidMount={(arg: { event: { extendedProps: Record<string, unknown> }; el: HTMLElement }) => {
               if (!isTodoCalendarStatus(arg.event.extendedProps.status)) return;
-              if (arg.isMirror || arg.isDragging || arg.isResizing) {
-                arg.el.style.boxSizing = "border-box";
-                arg.el.style.maxWidth = "100%";
-                arg.el.style.overflow = "hidden";
-              }
-              const eventBg =
-                typeof arg.event.extendedProps.backgroundColor === "string"
-                  ? arg.event.extendedProps.backgroundColor
-                  : undefined;
-              const eventBorder =
-                typeof arg.event.extendedProps.borderColor === "string"
-                  ? arg.event.extendedProps.borderColor
-                  : eventBg;
-              const eventText =
-                typeof arg.event.extendedProps.textColor === "string"
-                  ? arg.event.extendedProps.textColor
-                  : isDark
-                    ? "#f8fafc"
-                    : "#0f172a";
-              if (eventBg) {
-                arg.el.style.setProperty("--todo-calendar-event-bg", eventBg);
-                arg.el.style.setProperty("--todo-calendar-event-border", eventBorder ?? eventBg);
-                arg.el.style.setProperty("--todo-calendar-event-text", eventText);
-                arg.el.style.setProperty("--fc-event-color", eventBg);
-                arg.el.style.setProperty("--fc-event-contrast-color", eventText);
-                arg.el.style.backgroundColor = eventBg;
-                arg.el.style.borderColor = eventBorder ?? eventBg;
-                arg.el.style.color = eventText;
-              }
               arg.el.removeAttribute("title");
               arg.el.removeAttribute("aria-describedby");
-              arg.el.querySelectorAll("[title], [aria-describedby]").forEach((node) => {
+              arg.el.querySelectorAll("[title], [aria-describedby]").forEach((node: Element) => {
                 node.removeAttribute("title");
                 node.removeAttribute("aria-describedby");
               });
             }}
-            dayCellTopContent={renderCalendarDayCell}
-            dayCellClass={(arg: DayCellContentArg) => {
+            dayCellContent={renderCalendarDayCell}
+            dayCellClassNames={(arg: DayCellContentArg) => {
               const classNames: string[] = [];
               const isDayGridView = isTodoDayGridView(arg.view.type);
               const isMonthView = isMonthDayGridView(arg.view.type);
               if (isDayGridView && todoShowWeekNumbers && arg.date.getDay() === todoFirstDay) {
                 classNames.push("todo-calendar-week-number-cell");
               }
-              if (!isMonthView || !todoShowChineseCalendar) return classNames.join(" ");
+              if (!isMonthView || !todoShowChineseCalendar) return classNames;
               const meta = getChineseCalendarMeta(arg.date);
               if (meta.holidayName) {
                 classNames.push("todo-calendar-holiday-day");
@@ -3362,9 +5090,9 @@ export function TodoCalendar({
               if (meta.solarTerm) {
                 classNames.push("todo-calendar-solar-term-day");
               }
-              return classNames.join(" ");
+              return classNames;
             }}
-            eventClass={(arg: EventContentArg) => {
+            eventClassNames={(arg: EventContentArg) => {
               const classNames = ["todo-calendar-event"];
               const sourceId = arg.event.source?.id ?? "";
               if (
@@ -3372,7 +5100,7 @@ export function TodoCalendar({
                 !isTodoCalendarStatus(arg.event.extendedProps.status)
               ) {
                 classNames.push("is-imported");
-                return classNames.join(" ");
+                return classNames;
               }
               classNames.push("is-todo");
               if (arg.event.id === selectedItemId) {
@@ -3381,10 +5109,7 @@ export function TodoCalendar({
               if (arg.event.extendedProps.status === "completed") {
                 classNames.push("is-completed");
               }
-              if (arg.isMirror || arg.isDragging || arg.isResizing) {
-                classNames.push("is-drag-preview");
-              }
-              return classNames.join(" ");
+              return classNames;
             }}
           />
               {isYearView && renderYearView()}
@@ -3392,6 +5117,8 @@ export function TodoCalendar({
           </Allotment.Pane>
         </Allotment>
       </Box>
+        </>
+      )}
       <input
         ref={fileInputRef}
         type="file"
@@ -3399,6 +5126,16 @@ export function TodoCalendar({
         hidden
         onChange={onLocalIcsFileChange}
       />
+      <Menu
+        open={Boolean(mobileCalendarMenuAnchor)}
+        anchorEl={mobileCalendarMenuAnchor}
+        onClose={() => setMobileCalendarMenuAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+      >
+        <MenuItem onClick={openMobileListFilterMenu}>清单筛选</MenuItem>
+        <MenuItem onClick={openMobileSubscriptionMenu}>导入日历</MenuItem>
+      </Menu>
       <Menu
         open={Boolean(listFilterMenuAnchor)}
         anchorEl={listFilterMenuAnchor}
@@ -3726,38 +5463,57 @@ export function TodoCalendar({
         onClose={() => setViewMenuAnchor(null)}
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{
+          paper: {
+            sx: {
+              mt: 1,
+              width: isMobileCalendar ? "min(82vw, 320px)" : "auto",
+              minWidth: isMobileCalendar ? 280 : 180,
+              borderRadius: isMobileCalendar ? 3 : 1,
+              p: isMobileCalendar ? 0.75 : 0,
+              bgcolor: isDark ? "#111827" : "#fff",
+              boxShadow: isMobileCalendar
+                ? "0 18px 48px rgba(15, 23, 42, 0.22)"
+                : theme.shadows[6],
+            },
+          },
+          list: {
+            sx: { py: isMobileCalendar ? 0.35 : 0.5 },
+          },
+        }}
       >
-        <MenuItem
-          selected={calendarViewType === "timeGridDay"}
-          onClick={() => changeCalendarView("timeGridDay")}
-        >
-          日
-        </MenuItem>
-        <MenuItem
-          selected={calendarViewType === "dayGridWeek"}
-          onClick={() => changeCalendarView("dayGridWeek")}
-        >
-          周
-        </MenuItem>
-        <MenuItem
-          selected={calendarViewType === "dayGridMonth"}
-          onClick={() => changeCalendarView("dayGridMonth")}
-        >
-          月
-        </MenuItem>
-        <MenuItem
-          selected={calendarViewType === "todoYear"}
-          onClick={() => changeCalendarView("todoYear")}
-        >
-          年
-        </MenuItem>
-        <MenuItem
-          selected={calendarViewType === "customAgenda"}
-          onClick={() => changeCalendarView("customAgenda")}
-        >
-          议程
-        </MenuItem>
-        <Divider />
+        {isMobileCalendar &&
+          renderViewMenuItem(
+            MOBILE_OVERVIEW_VIEW,
+            "总览",
+            <CalendarViewIcon kind="overview" size={18} />,
+          )}
+        {renderViewMenuItem(
+          "timeGridDay",
+          "日视图",
+          <CalendarViewIcon kind="day" size={18} />,
+        )}
+        {renderViewMenuItem(
+          "dayGridWeek",
+          "周视图",
+          <CalendarViewIcon kind="week" size={18} />,
+        )}
+        {renderViewMenuItem(
+          "dayGridMonth",
+          "月视图",
+          <CalendarViewIcon kind="month" size={18} />,
+        )}
+        {renderViewMenuItem(
+          "todoYear",
+          "年视图",
+          <CalendarViewIcon kind="year" size={18} />,
+        )}
+        {renderViewMenuItem(
+          "customAgenda",
+          "日程视图",
+          <CalendarViewIcon kind="agenda" size={18} />,
+        )}
+        <Divider sx={{ my: isMobileCalendar ? 0.75 : 0.5 }} />
         {renderCustomDurationItem({
           label: "多日",
           valueLabel: `${customDayCount}日`,
@@ -3786,7 +5542,7 @@ export function TodoCalendar({
           viewType: "customMonths",
         })}
         {renderCustomDurationItem({
-          label: "议程",
+          label: "日程",
           valueLabel: `${agendaDayCount}天`,
           selected: calendarViewType === "customAgenda",
           minDisabled: agendaDayCount <= CUSTOM_AGENDA_MIN,
@@ -3803,9 +5559,15 @@ export function TodoCalendar({
         slotProps={{
           paper: {
             sx: {
-              width: 520,
-              maxWidth: "calc(100vw - 40px)",
-              borderRadius: 1,
+              width: { xs: "100%", sm: 520 },
+              maxWidth: { xs: "100%", sm: "calc(100vw - 40px)" },
+              m: { xs: 0, sm: 4 },
+              position: { xs: "fixed", sm: "relative" },
+              left: { xs: 0, sm: "auto" },
+              right: { xs: 0, sm: "auto" },
+              bottom: { xs: 0, sm: "auto" },
+              borderRadius: { xs: "24px 24px 0 0", sm: 1 },
+              boxShadow: { xs: "0 -18px 48px rgba(15, 23, 42, 0.24)", sm: undefined },
             },
           },
         }}

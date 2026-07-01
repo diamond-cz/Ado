@@ -2283,6 +2283,7 @@ pub async fn open_todo_window(app: AppHandle) -> CmdResult<()> {
     if let Some(win) = app.get_webview_window(WINDOW_LABEL) {
         let _ = apply_window_app_id(&win, WINDOW_APP_ID);
         let _ = win.show();
+        #[cfg(not(mobile))]
         let _ = win.unminimize();
         let _ = win.set_focus();
         return Ok(());
@@ -2304,10 +2305,14 @@ pub async fn open_todo_window(app: AppHandle) -> CmdResult<()> {
             .title(WINDOW_TITLE)
             .inner_size(960.0, 640.0)
             .min_inner_size(720.0, 480.0)
-            .decorations(false)
             .background_color(initial_background)
             .initialization_script(initial_script)
             .visible(true);
+
+    #[cfg(not(mobile))]
+    {
+        builder = builder.decorations(false);
+    }
 
     if let Some((x, y, w, h)) = initial_bounds {
         builder = builder.inner_size(w, h).position(x, y);

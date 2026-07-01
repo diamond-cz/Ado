@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { ipc } from "../lib/ipc";
 import { normalizeTodoTimeZones } from "../lib/timeZones";
 import {
   DEFAULT_TODO_COLOR_THEME_ID,
@@ -247,11 +248,9 @@ function persistTodoSettings(state: AppSettingsState) {
   } catch {
     /* cross-window sync is best-effort */
   }
-  import("../lib/ipc")
-    .then(({ ipc }) => ipc.setTodoSettings(payload))
-    .catch(() => {
-      /* persist is best-effort */
-    });
+  ipc.setTodoSettings(payload).catch(() => {
+    /* persist is best-effort */
+  });
 }
 
 export function todoSettingsStateToPayload(state: AppSettingsState | TodoSettingsState) {

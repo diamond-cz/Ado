@@ -950,6 +950,7 @@ function TodoItemBase({
               ml: compactMeta ? 0.5 : 0.75,
               color: dueTextColor,
               whiteSpace: "nowrap",
+              maxWidth: compactMeta ? 56 : 88,
               cursor: "default",
               display: "flex",
               alignItems: "center",
@@ -960,7 +961,8 @@ function TodoItemBase({
             <Typography
               component="span"
               sx={{
-                maxWidth: compactMeta ? 44 : 54,
+                display: "inline-block",
+                maxWidth: "100%",
                 overflow: "hidden",
                 textOverflow: "clip",
                 whiteSpace: "nowrap",

@@ -71,6 +71,7 @@ import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import ViewKanbanRoundedIcon from "@mui/icons-material/ViewKanbanRounded";
 import ViewTimelineRoundedIcon from "@mui/icons-material/ViewTimelineRounded";
+import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DateCalendar } from "@mui/x-date-pickers/DateCalendar";
@@ -137,6 +138,7 @@ import { useStore } from "../../state/store";
 
 interface DetailProps {
   isDark: boolean;
+  onOpenMobileSidebar?: () => void;
 }
 
 const DEFAULT_DRAFT_PRIORITY: TodoPriority | null = null;
@@ -592,7 +594,7 @@ function buildCompletedTodoContext(
   return { path, tooltip: `归属：${meta}` };
 }
 
-export function TodoDetail({ isDark }: DetailProps) {
+export function TodoDetail({ isDark, onOpenMobileSidebar }: DetailProps) {
   const folders = useTodoStore((s) => s.folders);
   const lists = useTodoStore((s) => s.lists);
   const groups = useTodoStore((s) => s.groups);
@@ -1675,13 +1677,35 @@ export function TodoDetail({ isDark }: DetailProps) {
         sx={{
           height: 48,
           px: 2,
-          display: "flex",
+          display: { xs: isQuadrant ? "none" : "flex", sm: "flex" },
           alignItems: "center",
           gap: 1.2,
           borderBottom: 1,
           borderColor: alpha(isDark ? "#f8fafc" : "#0f172a", 0.06),
         }}
       >
+        {onOpenMobileSidebar && (
+          <Tooltip title="打开导航">
+            <IconButton
+              size="small"
+              onClick={onOpenMobileSidebar}
+              sx={{
+                display: { xs: "inline-flex", sm: "none" },
+                width: 38,
+                height: 38,
+                ml: -0.5,
+                mr: 0.2,
+                color: "text.primary",
+                bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.08 : 0.045),
+                "&:hover": {
+                  bgcolor: alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.13 : 0.075),
+                },
+              }}
+            >
+              <MenuRoundedIcon sx={{ fontSize: 24 }} />
+            </IconButton>
+          </Tooltip>
+        )}
         {headerEmoji && (
           <Box sx={{ fontSize: 20, lineHeight: 1 }}>
             <TodoEmoji emoji={headerEmoji} size={20} />
@@ -1865,7 +1889,7 @@ export function TodoDetail({ isDark }: DetailProps) {
           flex: 1,
           minHeight: 0,
           overflowY: "auto",
-          py: 1,
+          py: { xs: isQuadrant ? 0 : 1, sm: 1 },
           display: "flex",
           flexDirection: "column",
         }}
