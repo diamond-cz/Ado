@@ -1802,16 +1802,16 @@ export function TodoCalendar({
     return {
       display: "inline-flex",
       alignItems: "center",
-      maxWidth: 56,
-      height: 16,
-      px: 0.45,
+      maxWidth: 42,
+      height: 15,
+      px: 0.35,
       borderRadius: 0.75,
       bgcolor: alpha(color, isDark ? 0.22 : 0.1),
       border: `1px solid ${alpha(color, isDark ? 0.34 : 0.18)}`,
       color,
-      fontSize: 10,
+      fontSize: 9.5,
       fontWeight: 700,
-      lineHeight: "14px",
+      lineHeight: "13px",
       whiteSpace: "nowrap",
       overflow: "hidden",
       textOverflow: "ellipsis",
@@ -1845,12 +1845,20 @@ export function TodoCalendar({
         sx={{
           width: "100%",
           minWidth: 0,
-          px: 0.35,
-          py: 0.2,
+          px: 0.45,
+          py: 0.25,
           opacity: arg.isOther ? 0.5 : 1,
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.35, minWidth: 0 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 0.35,
+            minWidth: 0,
+          }}
+        >
           <Typography
             component="span"
             sx={{
@@ -1871,7 +1879,7 @@ export function TodoCalendar({
           {badges.length > 0 && (
             <Box
               sx={{
-                flex: 1,
+                flex: "0 1 auto",
                 minWidth: 0,
                 display: "flex",
                 justifyContent: "flex-end",
@@ -2484,9 +2492,18 @@ export function TodoCalendar({
   }, [applyTodoCalendarDrop]);
 
   const calendarAccent = accentColor ?? theme.palette.primary.main;
-  const calendarTodayBg = alpha(calendarAccent, isDark ? 0.14 : 0.08);
-  const calendarButtonActiveBg = alpha(calendarAccent, isDark ? 0.22 : 0.12);
+  const calendarChromeBg = isDark ? alpha("#f8fafc", 0.035) : alpha(calendarAccent, 0.07);
+  const calendarGridBg = isDark ? alpha("#f8fafc", 0.025) : alpha(calendarAccent, 0.055);
+  const calendarGridHeaderBg = isDark ? alpha("#f8fafc", 0.045) : alpha(calendarAccent, 0.075);
+  const calendarGridBorder = alpha(isDark ? "#f8fafc" : calendarAccent, isDark ? 0.11 : 0.16);
+  const calendarTodayBg = alpha(calendarAccent, isDark ? 0.18 : 0.12);
+  const calendarButtonBg = alpha(calendarAccent, isDark ? 0.12 : 0.075);
+  const calendarButtonHoverBg = alpha(calendarAccent, isDark ? 0.18 : 0.12);
+  const calendarButtonBorder = alpha(calendarAccent, isDark ? 0.36 : 0.24);
+  const calendarButtonActiveBg = alpha(calendarAccent, isDark ? 0.24 : 0.15);
   const calendarButtonActiveBorder = alpha(calendarAccent, 0.45);
+  const titlebarControlSafeWidth = 164;
+  const titlebarControlSafeTop = 14;
   const borderColor = alpha(isDark ? "#f8fafc" : "#0f172a", 0.1);
   const subtleBg = alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.04 : 0.035);
   const hoverBg = alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.08 : 0.06);
@@ -4309,10 +4326,11 @@ export function TodoCalendar({
         position: "relative",
         display: "flex",
         flexDirection: "column",
-        p: { xs: 0, sm: compact ? 0 : 1 },
-        "--fc-border-color": borderColor,
+        p: 0,
+        bgcolor: calendarChromeBg,
+        "--fc-border-color": calendarGridBorder,
         "--fc-page-bg-color": "transparent",
-        "--fc-neutral-bg-color": subtleBg,
+        "--fc-neutral-bg-color": calendarGridHeaderBg,
         "--fc-today-bg-color": calendarTodayBg,
         "--fc-now-indicator-color": theme.palette.error.main,
         "--fc-list-event-hover-bg-color": hoverBg,
@@ -4328,17 +4346,20 @@ export function TodoCalendar({
           minHeight: "0 !important",
         },
         "& .fc .fc-toolbar.fc-header-toolbar": {
-          minHeight: { xs: "auto", sm: compact ? 38 : 44 },
+          minHeight: { xs: "auto", sm: compact ? 38 : 96 },
           mb: 0,
-          px: { xs: 1, sm: compact ? 0.6 : 1 },
-          pt: { xs: 0.7, sm: 0 },
-          pb: { xs: 0.8, sm: compact ? 0.6 : 1 },
-          gap: { xs: 0.6, sm: 1 },
-          rowGap: { xs: 0.7, sm: 1 },
-          flexWrap: { xs: "wrap", sm: "nowrap" },
-          alignItems: { xs: "center", sm: "center" },
-          borderBottom: 1,
-          borderColor,
+          pl: { xs: 1, sm: compact ? 0.6 : 1.05 },
+          pr: { xs: 1, sm: compact ? 0.6 : `${titlebarControlSafeWidth}px` },
+          pt: { xs: 0.7, sm: compact ? 0.35 : `${titlebarControlSafeTop}px` },
+          pb: { xs: 0.8, sm: compact ? 0.6 : 0.7 },
+          gap: { xs: 0.6, sm: compact ? 0.8 : 0.7 },
+          rowGap: { xs: 0.7, sm: compact ? 0.8 : 0.5 },
+          flexWrap: "wrap",
+          alignItems: "center",
+          borderBottom: 0,
+          borderColor: "transparent",
+          bgcolor: calendarChromeBg,
+          boxSizing: "border-box",
         },
         "&.is-year-view .fc .fc-toolbar.fc-header-toolbar": {
           display: { xs: "none", sm: "flex" },
@@ -4350,51 +4371,93 @@ export function TodoCalendar({
         },
         "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(1)": {
           order: { xs: 1, sm: 0 },
-          flex: { xs: "0 0 auto", sm: "0 1 auto" },
+          flex: { xs: "0 0 auto", sm: "0 0 auto" },
+          gap: { xs: 0.6, sm: compact ? 0.5 : 0.8 },
         },
         "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(2)": {
           order: { xs: 1, sm: 0 },
-          flex: { xs: "1 1 0", sm: "0 1 auto" },
+          flex: { xs: "1 1 0", sm: "1 1 auto" },
           justifyContent: { xs: "center", sm: "center" },
+          alignSelf: "center",
         },
         "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(3)": {
           order: { xs: 2, sm: 0 },
-          flex: { xs: "1 0 100%", sm: "0 1 auto" },
-          width: { xs: "100%", sm: "auto" },
+          flex: { xs: "1 0 100%", sm: "1 0 100%" },
+          width: { xs: "100%", sm: `calc(100% - ${titlebarControlSafeWidth}px)` },
+          maxWidth: { xs: "100%", sm: `calc(100% - ${titlebarControlSafeWidth}px)` },
           display: "flex",
-          gap: { xs: 0.6, sm: 0 },
-          justifyContent: { xs: "stretch", sm: "flex-end" },
+          gap: { xs: 0.6, sm: compact ? 0 : 0.45 },
+          justifyContent: { xs: "stretch", sm: "flex-start" },
+          flexWrap: "wrap",
         },
         "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(3) .fc-button": {
           flex: { xs: "1 1 0", sm: "0 0 auto" },
         },
         "& .fc .fc-toolbar-title": {
           minWidth: 0,
-          fontSize: { xs: 18, sm: compact ? 14 : 17 },
-          fontWeight: 700,
+          fontSize: { xs: 18, sm: compact ? 14 : 26 },
+          fontWeight: 800,
+          lineHeight: 1.15,
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
         },
         "& .fc .fc-button": {
-          height: { xs: 36, sm: compact ? 26 : 30 },
-          px: { xs: 0.9, sm: compact ? 0.8 : 1.1 },
+          height: { xs: 36, sm: compact ? 26 : 34 },
+          minWidth: { xs: 36, sm: compact ? 26 : 38 },
+          px: { xs: 0.9, sm: compact ? 0.8 : 1.15 },
           py: 0,
-          borderRadius: "4px",
-          borderColor,
-          bgcolor: "transparent",
-          color: "text.secondary",
+          borderRadius: "7px",
+          borderColor: calendarButtonBorder,
+          bgcolor: calendarButtonBg,
+          color: calendarAccent,
           boxShadow: "none",
           textTransform: "none",
           fontSize: { xs: 13, sm: compact ? 12 : 13 },
           fontWeight: 600,
         },
         "& .fc .fc-button:hover": {
-          borderColor,
-          bgcolor: hoverBg,
-          color: "text.primary",
+          borderColor: calendarButtonActiveBorder,
+          bgcolor: calendarButtonHoverBg,
+          color: calendarAccent,
+        },
+        "& .fc .fc-calendarPrev-button, & .fc .fc-calendarNext-button, & .fc .fc-inboxToggle-button": {
+          width: { xs: 36, sm: compact ? 26 : 34 },
+          minWidth: { xs: 36, sm: compact ? 26 : 34 },
+          px: "0 !important",
+        },
+        "& .fc .fc-calendarToday-button": {
+          minWidth: { xs: 54, sm: compact ? 44 : 58 },
+        },
+        "& .fc .fc-listFilter-button, & .fc .fc-importCalendar-button, & .fc .fc-viewPicker-button": {
+          minWidth: { xs: 58, sm: compact ? 48 : 70 },
         },
         "& .fc .fc-button-primary:not(:disabled).fc-button-active, & .fc .fc-button-primary:not(:disabled):active": {
+          borderColor: calendarButtonActiveBorder,
+          bgcolor: calendarButtonActiveBg,
+          color: calendarAccent,
+        },
+        "& .fc .fc-timeGridDay-button, & .fc .fc-dayGridWeek-button, & .fc .fc-dayGridMonth-button, & .fc .fc-yearView-button, & .fc .fc-customAgenda-button": {
+          minWidth: { xs: 36, sm: compact ? 30 : 42 },
+          height: { xs: 34, sm: compact ? 26 : 32 },
+          px: { xs: 0.9, sm: compact ? 0.75 : 1 },
+          borderRadius: 0,
+          borderColor: alpha(calendarAccent, isDark ? 0.28 : 0.18),
+          bgcolor: alpha(calendarAccent, isDark ? 0.09 : 0.055),
+          color: alpha(isDark ? "#f8fafc" : "#111827", isDark ? 0.78 : 0.72),
+        },
+        "& .fc .fc-timeGridDay-button": {
+          borderTopLeftRadius: 7,
+          borderBottomLeftRadius: 7,
+        },
+        "& .fc .fc-customAgenda-button": {
+          borderTopRightRadius: 7,
+          borderBottomRightRadius: 7,
+        },
+        "& .fc .fc-timeGridDay-button + .fc-button, & .fc .fc-dayGridWeek-button + .fc-button, & .fc .fc-dayGridMonth-button + .fc-button, & .fc .fc-yearView-button + .fc-button": {
+          marginLeft: "-1px",
+        },
+        "& .fc .fc-timeGridDay-button.fc-button-active, & .fc .fc-dayGridWeek-button.fc-button-active, & .fc .fc-dayGridMonth-button.fc-button-active, & .fc .fc-yearView-button.fc-button-active, & .fc .fc-customAgenda-button.fc-button-active": {
           borderColor: calendarButtonActiveBorder,
           bgcolor: calendarButtonActiveBg,
           color: calendarAccent,
@@ -4414,14 +4477,14 @@ export function TodoCalendar({
           pointerEvents: "none",
         },
         "& .fc .fc-button-primary:disabled": {
-          borderColor,
-          bgcolor: subtleBg,
+          borderColor: calendarButtonBorder,
+          bgcolor: alpha(calendarAccent, isDark ? 0.08 : 0.045),
           color: "text.disabled",
           opacity: 1,
         },
         "& .fc .fc-inboxToggle-button": {
-          width: compact ? 26 : 30,
-          minWidth: compact ? 26 : 30,
+          width: { xs: 36, sm: compact ? 26 : 34 },
+          minWidth: { xs: 36, sm: compact ? 26 : 34 },
           px: "0 !important",
           display: "inline-flex",
           alignItems: "center",
@@ -4476,6 +4539,8 @@ export function TodoCalendar({
         "& .fc .fc-scrollgrid": {
           borderLeftWidth: 0,
           borderTopWidth: 0,
+          borderColor: calendarGridBorder,
+          bgcolor: calendarGridBg,
         },
         "&.is-year-view .fc .fc-view-harness, &.is-year-view .fc .fc-view-harness-active, &.is-year-view .fc .fc-view, &.is-year-view .fc .fc-scrollgrid": {
           display: "none !important",
@@ -4484,15 +4549,52 @@ export function TodoCalendar({
           overflow: "hidden !important",
         },
         "& .fc .fc-col-header-cell": {
-          bgcolor: subtleBg,
+          height: { xs: 28, sm: compact ? 24 : 28 },
+          bgcolor: calendarGridHeaderBg,
+          borderColor: calendarGridBorder,
         },
         "& .fc .fc-col-header-cell-cushion, & .fc .fc-daygrid-day-number": {
           color: "text.secondary",
           textDecoration: "none",
         },
+        "& .fc .fc-col-header-cell-cushion": {
+          py: 0,
+          fontSize: { xs: 13, sm: compact ? 12 : 15 },
+          fontWeight: 700,
+          lineHeight: { xs: "28px", sm: compact ? "24px" : "28px" },
+        },
+        "& .fc .fc-daygrid-day": {
+          bgcolor: calendarGridBg,
+          borderColor: calendarGridBorder,
+        },
+        "& .fc .fc-daygrid-day-frame": {
+          minHeight: { xs: 74, sm: compact ? 58 : 82 },
+        },
+        "& .fc .fc-daygrid-day.fc-day-today": {
+          bgcolor: calendarTodayBg,
+        },
+        "& .fc .fc-daygrid-day-number": {
+          width: "100%",
+          display: "block",
+          py: 0.25,
+          pr: 0.45,
+          textAlign: "right",
+          fontSize: { xs: 12, sm: compact ? 11 : 13 },
+          fontWeight: 650,
+          lineHeight: 1.2,
+        },
         "& .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number": {
           color: calendarAccent,
           fontWeight: 800,
+        },
+        "& .fc .todo-calendar-rest-day": {
+          bgcolor: alpha(calendarAccent, isDark ? 0.12 : 0.07),
+        },
+        "& .fc .todo-calendar-holiday-day": {
+          bgcolor: alpha(theme.palette.error.main, isDark ? 0.1 : 0.055),
+        },
+        "& .fc .todo-calendar-workday": {
+          bgcolor: alpha(theme.palette.warning.main, isDark ? 0.1 : 0.055),
         },
         "& .fc .fc-listFilter-button, & .fc .fc-importCalendar-button, & .fc .fc-viewPicker-button, & .fc .fc-calendarMore-button": {
           borderColor: alpha(calendarAccent, 0.35),
@@ -4639,11 +4741,6 @@ export function TodoCalendar({
         },
         "& .fc .fc-daygrid-day-top": {
           minHeight: 28,
-        },
-        "& .fc .fc-daygrid-day-number": {
-          width: "100%",
-          maxWidth: "100%",
-          p: "2px 4px 0",
         },
         "& .fc .fc-daygrid-day.todo-calendar-rest-day": {
           bgcolor: alpha(theme.palette.primary.main, isDark ? 0.045 : 0.028),
@@ -4915,6 +5012,8 @@ export function TodoCalendar({
           <FullCalendarAny
             ref={calendarRef}
             plugins={FULLCALENDAR_PLUGINS}
+            className="todo-calendar-fullcalendar"
+            popoverClass="todo-calendar-more-popover"
             locale={zhCnLocale}
             timeZone="local"
             initialView={initialView}
@@ -4928,17 +5027,18 @@ export function TodoCalendar({
             selectMirror
             editable
             eventDurationEditable
-            dayMaxEvents
+            dayMaxEvents={false}
+            dayMaxEventRows={false}
             slotEventOverlap={false}
             eventMaxStack={compact ? 2 : 4}
             allDaySlot={false}
             businessHours={todoDayTimeRange.businessHours}
             slotMinTime={todoDayTimeRange.slotMinTime}
             slotMaxTime={todoDayTimeRange.slotMaxTime}
-            slotLabelFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-            slotLabelContent={renderSlotLabel}
+            slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+            slotHeaderContent={renderSlotLabel}
             eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
-            customButtons={{
+            buttons={{
               inboxToggle: {
                 text: "",
                 hint: inboxPaneCollapsed ? "展开收集箱" : "隐藏收集箱",
@@ -5070,15 +5170,15 @@ export function TodoCalendar({
                 node.removeAttribute("aria-describedby");
               });
             }}
-            dayCellContent={renderCalendarDayCell}
-            dayCellClassNames={(arg: DayCellContentArg) => {
+            dayCellTopContent={renderCalendarDayCell}
+            dayCellClass={(arg: DayCellContentArg) => {
               const classNames: string[] = [];
               const isDayGridView = isTodoDayGridView(arg.view.type);
               const isMonthView = isMonthDayGridView(arg.view.type);
               if (isDayGridView && todoShowWeekNumbers && arg.date.getDay() === todoFirstDay) {
                 classNames.push("todo-calendar-week-number-cell");
               }
-              if (!isMonthView || !todoShowChineseCalendar) return classNames;
+              if (!isMonthView || !todoShowChineseCalendar) return classNames.join(" ");
               const meta = getChineseCalendarMeta(arg.date);
               if (meta.holidayName) {
                 classNames.push("todo-calendar-holiday-day");
@@ -5090,9 +5190,9 @@ export function TodoCalendar({
               if (meta.solarTerm) {
                 classNames.push("todo-calendar-solar-term-day");
               }
-              return classNames;
+              return classNames.join(" ");
             }}
-            eventClassNames={(arg: EventContentArg) => {
+            eventClass={(arg: EventContentArg) => {
               const classNames = ["todo-calendar-event"];
               const sourceId = arg.event.source?.id ?? "";
               if (
@@ -5100,7 +5200,7 @@ export function TodoCalendar({
                 !isTodoCalendarStatus(arg.event.extendedProps.status)
               ) {
                 classNames.push("is-imported");
-                return classNames;
+                return classNames.join(" ");
               }
               classNames.push("is-todo");
               if (arg.event.id === selectedItemId) {
@@ -5109,7 +5209,7 @@ export function TodoCalendar({
               if (arg.event.extendedProps.status === "completed") {
                 classNames.push("is-completed");
               }
-              return classNames;
+              return classNames.join(" ");
             }}
           />
               {isYearView && renderYearView()}
