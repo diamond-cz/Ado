@@ -41,6 +41,7 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import AlarmRoundedIcon from "@mui/icons-material/AlarmRounded";
 import CalendarTodayRoundedIcon from "@mui/icons-material/CalendarTodayRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import GridViewRoundedIcon from "@mui/icons-material/GridViewRounded";
@@ -485,6 +486,26 @@ function addLocalMonths(date: Date, months: number): Date {
   const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
   target.setDate(Math.min(date.getDate(), lastDay));
   return target;
+}
+
+function formatCalendarFullDate(date: Date): string {
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function formatCalendarMonthTitle(date: Date): string {
+  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+}
+
+function formatCalendarDateRangeTitle(start: Date, end: Date): string {
+  const startText = formatCalendarFullDate(start);
+  if (localDayKey(start) === localDayKey(end)) return startText;
+  if (start.getFullYear() === end.getFullYear()) {
+    if (start.getMonth() === end.getMonth()) {
+      return `${startText} - ${end.getDate()}日`;
+    }
+    return `${startText} - ${end.getMonth() + 1}月${end.getDate()}日`;
+  }
+  return `${startText} - ${formatCalendarFullDate(end)}`;
 }
 
 function buildMonthCells(year: number, month: number): Date[] {
@@ -1184,6 +1205,53 @@ export function TodoCalendar({
                       : "自定义";
   const viewPickerButtonText = viewPickerLabel;
   const isYearView = calendarViewType === "todoYear";
+  const calendarViewTitle = useMemo(() => {
+    if (calendarViewType === "timeGridDay") {
+      return formatCalendarFullDate(calendarDate);
+    }
+    if (calendarViewType === "customDays") {
+      const end = new Date(addLocalDaysMs(calendarDate.getTime(), customDayCount - 1));
+      return formatCalendarDateRangeTitle(calendarDate, end);
+    }
+    if (calendarViewType === "dayGridWeek") {
+      const weekCells = buildWeekCells(calendarDate, todoFirstDay);
+      return formatCalendarDateRangeTitle(weekCells[0], weekCells[weekCells.length - 1]);
+    }
+    if (calendarViewType === "customWeeks") {
+      const start = buildWeekCells(calendarDate, todoFirstDay)[0];
+      const end = new Date(addLocalDaysMs(start.getTime(), customWeekCount * 7 - 1));
+      return formatCalendarDateRangeTitle(start, end);
+    }
+    if (calendarViewType === "dayGridMonth") {
+      return formatCalendarMonthTitle(calendarDate);
+    }
+    if (calendarViewType === "customMonths") {
+      const end = addLocalMonths(calendarDate, customMonthCount - 1);
+      if (
+        calendarDate.getFullYear() === end.getFullYear() &&
+        calendarDate.getMonth() === end.getMonth()
+      ) {
+        return formatCalendarMonthTitle(calendarDate);
+      }
+      return `${formatCalendarMonthTitle(calendarDate)} - ${formatCalendarMonthTitle(end)}`;
+    }
+    if (calendarViewType === "todoYear") {
+      return `${calendarDate.getFullYear()}年`;
+    }
+    if (calendarViewType === "customAgenda") {
+      const end = new Date(addLocalDaysMs(calendarDate.getTime(), agendaDayCount - 1));
+      return `日程 · ${formatCalendarDateRangeTitle(calendarDate, end)}`;
+    }
+    return formatCalendarFullDate(calendarDate);
+  }, [
+    agendaDayCount,
+    calendarDate,
+    calendarViewType,
+    customDayCount,
+    customMonthCount,
+    customWeekCount,
+    todoFirstDay,
+  ]);
   const showInboxPane = !compact && !isMobileCalendar;
   const showInboxToggle = showInboxPane;
   const inboxPaneVisible = showInboxPane && !inboxPaneCollapsed;
@@ -2226,7 +2294,7 @@ export function TodoCalendar({
             flex: "1 1 auto",
             minHeight: 0,
             overflow: "auto",
-            pt: { xs: 0.4, sm: 0.9 },
+            pt: { xs: 0.4, sm: 0 },
             px: { xs: 2.2, sm: 0.8, md: 1.2 },
             pb: { xs: 2.4, sm: 1.2 },
           }}
@@ -2492,7 +2560,7 @@ export function TodoCalendar({
   }, [applyTodoCalendarDrop]);
 
   const calendarAccent = accentColor ?? theme.palette.primary.main;
-  const calendarChromeBg = isDark ? alpha("#f8fafc", 0.035) : alpha(calendarAccent, 0.07);
+  const calendarChromeBg = "transparent";
   const calendarGridBg = isDark ? alpha("#f8fafc", 0.025) : alpha(calendarAccent, 0.055);
   const calendarGridHeaderBg = isDark ? alpha("#f8fafc", 0.045) : alpha(calendarAccent, 0.075);
   const calendarGridBorder = alpha(isDark ? "#f8fafc" : calendarAccent, isDark ? 0.11 : 0.16);
@@ -2502,8 +2570,13 @@ export function TodoCalendar({
   const calendarButtonBorder = alpha(calendarAccent, isDark ? 0.36 : 0.24);
   const calendarButtonActiveBg = alpha(calendarAccent, isDark ? 0.24 : 0.15);
   const calendarButtonActiveBorder = alpha(calendarAccent, 0.45);
-  const titlebarControlSafeWidth = 164;
-  const titlebarControlSafeTop = 14;
+  const calendarInboxHeaderHeight = 44;
+  const calendarToolbarHeight = compact ? 38 : calendarInboxHeaderHeight;
+  const calendarViewTitleStripHeight = compact ? 28 : 32;
+  const showCalendarDayHeaders = calendarViewType !== "timeGridDay";
+  const titlebarControlSafeWidth = 0;
+  const titlebarControlSafeTop = 0;
+  const calendarToolbarCompressBreakpoint = "@media (max-width: 1320px)";
   const borderColor = alpha(isDark ? "#f8fafc" : "#0f172a", 0.1);
   const subtleBg = alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.04 : 0.035);
   const hoverBg = alpha(isDark ? "#f8fafc" : "#0f172a", isDark ? 0.08 : 0.06);
@@ -4313,8 +4386,145 @@ export function TodoCalendar({
         : calendarViewType === "dayGridMonth" || calendarViewType === "customMonths"
           ? renderMobileMonthView()
           : calendarViewType === "customAgenda"
-            ? renderMobileAgendaView()
+          ? renderMobileAgendaView()
             : renderMobileOverviewView();
+
+  const toolbarButtonClass = (name: string, options?: { icon?: boolean; selected?: boolean; view?: boolean }) =>
+    [
+      "todo-calendar-toolbar-button",
+      `todo-calendar-toolbar-button--${name}`,
+      options?.icon ? "todo-calendar-toolbar-button--icon" : "",
+      options?.selected ? "is-selected" : "",
+      options?.view ? "todo-calendar-toolbar-button--view" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+  const viewToggleButtons = [
+    {
+      label: "日",
+      viewType: "timeGridDay",
+      selected: calendarViewType === "timeGridDay" || calendarViewType === "customDays",
+      className: "timeGridDay",
+    },
+    {
+      label: "周",
+      viewType: "dayGridWeek",
+      selected: calendarViewType === "dayGridWeek" || calendarViewType === "customWeeks",
+      className: "dayGridWeek",
+    },
+    {
+      label: "月",
+      viewType: "dayGridMonth",
+      selected: calendarViewType === "dayGridMonth" || calendarViewType === "customMonths",
+      className: "dayGridMonth",
+    },
+    {
+      label: "年",
+      viewType: "todoYear",
+      selected: calendarViewType === "todoYear",
+      className: "yearView",
+    },
+    {
+      label: "日程",
+      viewType: "customAgenda",
+      selected: calendarViewType === "customAgenda",
+      className: "customAgenda",
+    },
+  ];
+
+  const calendarDesktopToolbar = (
+    <Box
+      className="todo-calendar-external-toolbar"
+      sx={{
+        height: calendarToolbarHeight,
+        minHeight: calendarToolbarHeight,
+        px: 1.05,
+        pr: { xs: 1, sm: 1.05 },
+        display: "flex",
+        alignItems: "center",
+        alignContent: "center",
+        gap: 0.7,
+        rowGap: 0.45,
+        flexWrap: "nowrap",
+        flexShrink: 0,
+        boxSizing: "border-box",
+        overflow: "visible",
+        [calendarToolbarCompressBreakpoint]: {
+          height: calendarToolbarHeight,
+          minHeight: calendarToolbarHeight,
+          py: 0,
+          flexWrap: "nowrap",
+        },
+      }}
+    >
+      <Box className="todo-calendar-toolbar-section todo-calendar-toolbar-section--left">
+        {showInboxToggle && (
+          <Button
+            aria-label={inboxPaneCollapsed ? "展开收集箱" : "隐藏收集箱"}
+            className={toolbarButtonClass("inboxToggle", { icon: true })}
+            onClick={toggleInboxPaneCollapsed}
+          >
+            <span className="todo-calendar-inbox-toggle-icon" />
+          </Button>
+        )}
+        <Button className={toolbarButtonClass("calendarToday")} onClick={goCalendarToday}>
+          今天
+        </Button>
+        <Button
+          aria-label="上一页"
+          className={toolbarButtonClass("calendarPrev", { icon: true })}
+          onClick={() => goCalendarByStep(-1)}
+        >
+          <ChevronLeftRoundedIcon className="todo-calendar-toolbar-icon" />
+        </Button>
+        <Button
+          aria-label="下一页"
+          className={toolbarButtonClass("calendarNext", { icon: true })}
+          onClick={() => goCalendarByStep(1)}
+        >
+          <ChevronRightRoundedIcon className="todo-calendar-toolbar-icon" />
+        </Button>
+      </Box>
+      <Box sx={{ flex: "1 1 8px", minWidth: 4 }} />
+      {!compact && (
+        <Box className="todo-calendar-toolbar-section todo-calendar-toolbar-section--right">
+          <Button
+            className={toolbarButtonClass("listFilter")}
+            onClick={(event) => setListFilterMenuAnchor(event.currentTarget)}
+          >
+            {listFilterButtonText}
+          </Button>
+          <Button
+            className={toolbarButtonClass("importCalendar")}
+            onClick={(event) => setSubscriptionMenuAnchor(event.currentTarget)}
+          >
+            导入
+          </Button>
+          <Button
+            className={toolbarButtonClass("viewPicker")}
+            onClick={(event) => setViewMenuAnchor(event.currentTarget)}
+          >
+            {viewPickerButtonText}
+          </Button>
+          <Box className="todo-calendar-toolbar-button-group">
+            {viewToggleButtons.map((button) => (
+              <Button
+                key={button.viewType}
+                className={toolbarButtonClass(button.className, {
+                  selected: button.selected,
+                  view: true,
+                })}
+                onClick={() => changeCalendarView(button.viewType)}
+              >
+                {button.label}
+              </Button>
+            ))}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
 
   return (
     <Box
@@ -4346,19 +4556,32 @@ export function TodoCalendar({
           minHeight: "0 !important",
         },
         "& .fc .fc-toolbar.fc-header-toolbar": {
-          minHeight: { xs: "auto", sm: compact ? 38 : 96 },
+          height: { xs: "auto", sm: calendarToolbarHeight },
+          minHeight: { xs: "auto", sm: calendarToolbarHeight },
+          maxHeight: { xs: "none", sm: calendarToolbarHeight },
           mb: 0,
           pl: { xs: 1, sm: compact ? 0.6 : 1.05 },
-          pr: { xs: 1, sm: compact ? 0.6 : `${titlebarControlSafeWidth}px` },
-          pt: { xs: 0.7, sm: compact ? 0.35 : `${titlebarControlSafeTop}px` },
-          pb: { xs: 0.8, sm: compact ? 0.6 : 0.7 },
+          pr: { xs: 1, sm: compact ? 0.6 : 0 },
+          pt: { xs: 0.7, sm: compact ? 0.2 : `${titlebarControlSafeTop}px` },
+          pb: { xs: 0.8, sm: compact ? 0.4 : 0 },
           gap: { xs: 0.6, sm: compact ? 0.8 : 0.7 },
           rowGap: { xs: 0.7, sm: compact ? 0.8 : 0.5 },
-          flexWrap: "wrap",
+          flexWrap: { xs: "wrap", sm: "nowrap" },
           alignItems: "center",
           borderBottom: 0,
           borderColor: "transparent",
           bgcolor: calendarChromeBg,
+          boxSizing: "border-box",
+        },
+        "& .todo-calendar-toolbar": {
+          height: { xs: "auto", sm: calendarToolbarHeight },
+          minHeight: { xs: "auto", sm: calendarToolbarHeight },
+          maxHeight: { xs: "none", sm: calendarToolbarHeight },
+          display: "flex",
+          alignItems: "center",
+          flexWrap: { xs: "wrap", sm: "nowrap" },
+          columnGap: { xs: 0.6, sm: compact ? 0.8 : 0.7 },
+          rowGap: { xs: 0.7, sm: compact ? 0.8 : 0.5 },
           boxSizing: "border-box",
         },
         "&.is-year-view .fc .fc-toolbar.fc-header-toolbar": {
@@ -4382,16 +4605,81 @@ export function TodoCalendar({
         },
         "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(3)": {
           order: { xs: 2, sm: 0 },
-          flex: { xs: "1 0 100%", sm: "1 0 100%" },
-          width: { xs: "100%", sm: `calc(100% - ${titlebarControlSafeWidth}px)` },
+          flex: { xs: "1 0 100%", sm: "0 1 auto" },
+          width: { xs: "100%", sm: "auto" },
           maxWidth: { xs: "100%", sm: `calc(100% - ${titlebarControlSafeWidth}px)` },
           display: "flex",
           gap: { xs: 0.6, sm: compact ? 0 : 0.45 },
-          justifyContent: { xs: "stretch", sm: "flex-start" },
-          flexWrap: "wrap",
+          justifyContent: { xs: "stretch", sm: "flex-end" },
+          flexWrap: { xs: "wrap", sm: "nowrap" },
         },
         "& .fc .fc-toolbar.fc-header-toolbar .fc-toolbar-chunk:nth-of-type(3) .fc-button": {
           flex: { xs: "1 1 0", sm: "0 0 auto" },
+        },
+        "& .todo-calendar-toolbar-section": {
+          minWidth: 0,
+          display: "flex",
+          alignItems: "center",
+          boxSizing: "border-box",
+        },
+        "& .todo-calendar-toolbar-section--left": {
+          order: { xs: 1, sm: 0 },
+          flex: { xs: "0 0 auto", sm: "0 0 auto" },
+          gap: { xs: 0.6, sm: compact ? 0.5 : 0.8 },
+          flexShrink: 0,
+          [calendarToolbarCompressBreakpoint]: {
+            gap: compact ? 0.35 : 0.45,
+          },
+        },
+        "& .todo-calendar-toolbar-section--center": {
+          order: { xs: 1, sm: 0 },
+          flex: { xs: "1 1 0", sm: "1 1 220px" },
+          justifyContent: "center",
+          px: { xs: 0, sm: 1 },
+        },
+        "& .todo-calendar-toolbar-section--right": {
+          order: { xs: 2, sm: 0 },
+          flex: { xs: "0 1 auto", sm: "0 1 auto" },
+          ml: "auto",
+          pr: 0,
+          maxWidth: { xs: "100%", sm: "100%" },
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-start",
+          flexWrap: "nowrap",
+          gap: { xs: 0.6, sm: compact ? 0 : 0.45 },
+          boxSizing: "border-box",
+          overflowX: "auto",
+          overflowY: "hidden",
+          scrollbarWidth: "none",
+          WebkitOverflowScrolling: "touch",
+          "&::-webkit-scrollbar": {
+            display: "none",
+          },
+          [calendarToolbarCompressBreakpoint]: {
+            order: { xs: 2, sm: 0 },
+            flex: "0 1 auto",
+            width: "auto",
+            ml: "auto",
+            pr: 0,
+            justifyContent: "flex-start",
+            flexWrap: "nowrap",
+            rowGap: 0,
+          },
+        },
+        "& .todo-calendar-toolbar-section--right .todo-calendar-toolbar-button": {
+          flex: "0 0 auto",
+        },
+        "& .todo-calendar-toolbar-button-group": {
+          display: "inline-flex",
+          alignItems: "center",
+          flexShrink: 0,
+          flexWrap: "nowrap",
+          whiteSpace: "nowrap",
+          [calendarToolbarCompressBreakpoint]: {
+            flexWrap: "nowrap",
+            rowGap: 0,
+          },
         },
         "& .fc .fc-toolbar-title": {
           minWidth: 0,
@@ -4401,6 +4689,115 @@ export function TodoCalendar({
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+        },
+        "& .todo-calendar-toolbar-button": {
+          height: { xs: 34, sm: compact ? 26 : 32 },
+          minWidth: { xs: 36, sm: compact ? 28 : 40 },
+          px: { xs: 0.9, sm: compact ? 0.75 : 1.15 },
+          py: 0,
+          borderRadius: "8px",
+          border: `1px solid ${calendarButtonBorder}`,
+          backgroundColor: `${calendarButtonBg} !important`,
+          color: calendarAccent,
+          boxShadow: "none",
+          textTransform: "none",
+          fontSize: { xs: 13, sm: compact ? 12 : 13 },
+          fontWeight: 700,
+          lineHeight: 1,
+          whiteSpace: "nowrap",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 0.45,
+          transition: "background-color 120ms ease, border-color 120ms ease, color 120ms ease",
+          [calendarToolbarCompressBreakpoint]: {
+            height: compact ? 26 : 30,
+            minWidth: compact ? 28 : 34,
+            px: compact ? 0.6 : 0.8,
+            borderRadius: "7px",
+            fontSize: compact ? 11.5 : 12,
+          },
+        },
+        "& .todo-calendar-toolbar-button:hover": {
+          borderColor: calendarButtonActiveBorder,
+          backgroundColor: `${calendarButtonHoverBg} !important`,
+          color: calendarAccent,
+        },
+        "& .todo-calendar-toolbar-button:focus-visible": {
+          outline: `2px solid ${alpha(calendarAccent, 0.28)}`,
+          outlineOffset: 2,
+        },
+        "& .todo-calendar-toolbar-button--icon": {
+          width: { xs: 34, sm: compact ? 26 : 32 },
+          minWidth: { xs: 34, sm: compact ? 26 : 32 },
+          px: "0 !important",
+          fontSize: 0,
+          [calendarToolbarCompressBreakpoint]: {
+            width: compact ? 26 : 30,
+            minWidth: compact ? 26 : 30,
+          },
+        },
+        "& .todo-calendar-toolbar-button--calendarToday": {
+          minWidth: { xs: 52, sm: compact ? 44 : 56 },
+          [calendarToolbarCompressBreakpoint]: {
+            minWidth: compact ? 42 : 50,
+          },
+        },
+        "& .todo-calendar-toolbar-button--listFilter, & .todo-calendar-toolbar-button--importCalendar, & .todo-calendar-toolbar-button--viewPicker": {
+          minWidth: { xs: 54, sm: compact ? 46 : 62 },
+          [calendarToolbarCompressBreakpoint]: {
+            minWidth: compact ? 44 : 52,
+            px: compact ? 0.6 : 0.8,
+          },
+        },
+        "& .todo-calendar-toolbar-button--view": {
+          minWidth: { xs: 34, sm: compact ? 28 : 38 },
+          height: { xs: 32, sm: compact ? 26 : 30 },
+          px: { xs: 0.8, sm: compact ? 0.65 : 0.95 },
+          borderRadius: 0,
+          borderColor: alpha(calendarAccent, isDark ? 0.26 : 0.18),
+          backgroundColor: `${alpha(calendarAccent, isDark ? 0.08 : 0.045)} !important`,
+          color: alpha(isDark ? "#f8fafc" : "#111827", isDark ? 0.78 : 0.76),
+          fontWeight: 750,
+          [calendarToolbarCompressBreakpoint]: {
+            minWidth: compact ? 26 : 32,
+            height: compact ? 26 : 30,
+            px: compact ? 0.5 : 0.7,
+          },
+        },
+        "& .todo-calendar-toolbar-button--timeGridDay": {
+          borderTopLeftRadius: 8,
+          borderBottomLeftRadius: 8,
+        },
+        "& .todo-calendar-toolbar-button--customAgenda": {
+          borderTopRightRadius: 8,
+          borderBottomRightRadius: 8,
+        },
+        "& .todo-calendar-toolbar-button--view + .todo-calendar-toolbar-button--view": {
+          marginLeft: "-1px",
+        },
+        "& .todo-calendar-toolbar-button.is-selected, & .todo-calendar-toolbar-button--view.is-selected": {
+          borderColor: calendarButtonActiveBorder,
+          backgroundColor: `${calendarButtonActiveBg} !important`,
+          color: calendarAccent,
+        },
+        "& .todo-calendar-toolbar-icon": {
+          width: { xs: 18, sm: compact ? 15 : 17 },
+          height: { xs: 18, sm: compact ? 15 : 17 },
+          fontSize: { xs: 18, sm: compact ? 15 : 17 },
+          display: "block",
+        },
+        "& .todo-calendar-inbox-toggle-icon": {
+          width: { xs: 18, sm: compact ? 15 : 17 },
+          height: { xs: 18, sm: compact ? 15 : 17 },
+          display: "block",
+          backgroundColor: "currentColor",
+          WebkitMask: `${CALENDAR_INBOX_COLLAPSE_ICON} center / contain no-repeat`,
+          mask: `${CALENDAR_INBOX_COLLAPSE_ICON} center / contain no-repeat`,
+        },
+        "&.is-inbox-collapsed .todo-calendar-inbox-toggle-icon": {
+          WebkitMask: `${CALENDAR_INBOX_EXPAND_ICON} center / contain no-repeat`,
+          mask: `${CALENDAR_INBOX_EXPAND_ICON} center / contain no-repeat`,
         },
         "& .fc .fc-button": {
           height: { xs: 36, sm: compact ? 26 : 34 },
@@ -4541,6 +4938,19 @@ export function TodoCalendar({
           borderTopWidth: 0,
           borderColor: calendarGridBorder,
           bgcolor: calendarGridBg,
+        },
+        "& .fc .fc-view-harness, & .fc .fc-view-harness-active, & .fc .fc-view, & .fc .fc-scrollgrid, & .fc .fc-list": {
+          marginTop: "0 !important",
+        },
+        "& .fc .fc-timeGridDay-view .fc-scrollgrid-section-header, & .fc .fc-timeGridDay-view .fc-col-header": {
+          display: "none !important",
+          height: "0 !important",
+        },
+        "& .fc .fc-timeGridDay-view .fc-scrollgrid-section-body > td": {
+          borderTopWidth: "0 !important",
+        },
+        "& .fc .fc-timegrid-slots, & .fc .fc-timegrid-body, & .fc .fc-daygrid-body, & .fc .fc-list-table": {
+          marginTop: "0 !important",
         },
         "&.is-year-view .fc .fc-view-harness, &.is-year-view .fc .fc-view-harness-active, &.is-year-view .fc .fc-view, &.is-year-view .fc .fc-scrollgrid": {
           display: "none !important",
@@ -4928,7 +5338,7 @@ export function TodoCalendar({
               >
                 <Box
                   sx={{
-                    height: 44,
+                    height: calendarInboxHeaderHeight,
                     px: 1.2,
                     display: "flex",
                     alignItems: "center",
@@ -4997,9 +5407,10 @@ export function TodoCalendar({
                 outlineOffset: -2,
                 transition: "outline-color 120ms ease",
                 "& > .fc": {
+                  display: isYearView ? "none !important" : undefined,
                   flex: isYearView ? "0 0 auto" : "1 1 auto",
                   minHeight: 0,
-                  height: isYearView ? "auto !important" : "100%",
+                  height: isYearView ? "0 !important" : "100%",
                 },
                 "& .fc-view-harness": {
                   display: isYearView ? "none !important" : undefined,
@@ -5009,6 +5420,40 @@ export function TodoCalendar({
                 },
               }}
             >
+              {calendarDesktopToolbar}
+              <Box
+                className="todo-calendar-view-title-strip"
+                sx={{
+                  height: calendarViewTitleStripHeight,
+                  minHeight: calendarViewTitleStripHeight,
+                  px: 1.2,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  borderTop: `1px solid ${calendarGridBorder}`,
+                  borderBottom: `1px solid ${calendarGridBorder}`,
+                  boxSizing: "border-box",
+                  bgcolor: "transparent",
+                }}
+              >
+                <Typography
+                  sx={{
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    color: "text.primary",
+                    fontSize: { xs: 16, sm: compact ? 14 : 17 },
+                    fontWeight: 800,
+                    lineHeight: 1.15,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {calendarViewTitle}
+                </Typography>
+              </Box>
+              {!isYearView && (
           <FullCalendarAny
             ref={calendarRef}
             plugins={FULLCALENDAR_PLUGINS}
@@ -5016,10 +5461,12 @@ export function TodoCalendar({
             popoverClass="todo-calendar-more-popover"
             locale={zhCnLocale}
             timeZone="local"
-            initialView={initialView}
+            initialView={calendarViewType}
+            initialDate={calendarDate}
             firstDay={todoFirstDay}
             weekNumbers={todoShowWeekNumbers}
-            height={isYearView ? "auto" : "100%"}
+            dayHeaders={showCalendarDayHeaders}
+            height="100%"
             expandRows
             nowIndicator
             navLinks
@@ -5038,9 +5485,36 @@ export function TodoCalendar({
             slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
             slotHeaderContent={renderSlotLabel}
             eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+            headerToolbarClass="todo-calendar-header-toolbar"
+            toolbarClass="todo-calendar-toolbar"
+            toolbarSectionClass={(info: { name: string }) =>
+              `todo-calendar-toolbar-section todo-calendar-toolbar-section--${info.name}`
+            }
+            toolbarTitleClass="todo-calendar-toolbar-title"
+            buttonGroupClass="todo-calendar-toolbar-button-group"
+            buttonClass={(info: { name: string; isIconOnly: boolean; isSelected: boolean }) => {
+              const viewButtonNames = new Set([
+                "timeGridDay",
+                "dayGridWeek",
+                "dayGridMonth",
+                "yearView",
+                "customAgenda",
+              ]);
+              return [
+                "todo-calendar-toolbar-button",
+                `todo-calendar-toolbar-button--${info.name}`,
+                info.isIconOnly ? "todo-calendar-toolbar-button--icon" : "",
+                info.isSelected ? "is-selected" : "",
+                viewButtonNames.has(info.name) ? "todo-calendar-toolbar-button--view" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+            }}
             buttons={{
               inboxToggle: {
-                text: "",
+                text: inboxPaneCollapsed ? "展开" : "收起",
+                display: "icon",
+                iconContent: () => <span className="todo-calendar-inbox-toggle-icon" />,
                 hint: inboxPaneCollapsed ? "展开收集箱" : "隐藏收集箱",
                 click: toggleInboxPaneCollapsed,
               },
@@ -5049,11 +5523,17 @@ export function TodoCalendar({
                 click: goCalendarToday,
               },
               calendarPrev: {
-                icon: "chevron-left",
+                text: "上一页",
+                display: "icon",
+                iconContent: () => <ChevronLeftRoundedIcon className="todo-calendar-toolbar-icon" />,
+                hint: "上一页",
                 click: () => goCalendarByStep(-1),
               },
               calendarNext: {
-                icon: "chevron-right",
+                text: "下一页",
+                display: "icon",
+                iconContent: () => <ChevronRightRoundedIcon className="todo-calendar-toolbar-icon" />,
+                hint: "下一页",
                 click: () => goCalendarByStep(1),
               },
               yearToday: {
@@ -5061,11 +5541,17 @@ export function TodoCalendar({
                 click: goTodayInYearView,
               },
               yearPrev: {
-                icon: "chevron-left",
+                text: "上一年",
+                display: "icon",
+                iconContent: () => <ChevronLeftRoundedIcon className="todo-calendar-toolbar-icon" />,
+                hint: "上一年",
                 click: () => goYear(-1),
               },
               yearNext: {
-                icon: "chevron-right",
+                text: "下一年",
+                display: "icon",
+                iconContent: () => <ChevronRightRoundedIcon className="todo-calendar-toolbar-icon" />,
+                hint: "下一年",
                 click: () => goYear(1),
               },
               yearTitle: {
@@ -5095,19 +5581,7 @@ export function TodoCalendar({
                 click: () => changeCalendarView("todoYear"),
               },
             }}
-            headerToolbar={{
-              left: isMobileCalendar
-                ? "calendarToday"
-                : showInboxToggle
-                ? "inboxToggle calendarToday calendarPrev,calendarNext"
-                : "calendarToday calendarPrev,calendarNext",
-              center: isYearView ? "yearTitle" : "title",
-              right: isMobileCalendar
-                ? "viewPicker calendarMore"
-                : compact
-                ? ""
-                : "listFilter importCalendar viewPicker timeGridDay,dayGridWeek,dayGridMonth,yearView,customAgenda",
-            }}
+            headerToolbar={false}
             buttonText={{
               today: "今天",
               day: "日",
@@ -5212,6 +5686,7 @@ export function TodoCalendar({
               return classNames.join(" ");
             }}
           />
+              )}
               {isYearView && renderYearView()}
             </Box>
           </Allotment.Pane>

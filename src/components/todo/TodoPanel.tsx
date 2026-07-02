@@ -1401,34 +1401,46 @@ function CalendarRailIcon() {
     <Box
       aria-hidden
       sx={{
-        width: 24,
-        height: 24,
-        borderRadius: 1,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+        width: 22,
+        height: 22,
+        borderRadius: "5px",
+        display: "block",
         position: "relative",
         color: "currentColor",
         border: "2px solid currentColor",
-        borderTopWidth: 5,
+        borderTopWidth: 4,
         boxSizing: "border-box",
-        fontSize: day >= 10 ? 10.5 : 12,
+        fontSize: day >= 10 ? 9.5 : 10.5,
         fontWeight: 850,
         lineHeight: 1,
+        flexShrink: 0,
         "&::before, &::after": {
           content: '""',
           position: "absolute",
-          top: -6,
+          top: -5,
           width: 3,
-          height: 5,
+          height: 4,
           borderRadius: 999,
           bgcolor: "currentColor",
         },
-        "&::before": { left: 5 },
-        "&::after": { right: 5 },
+        "&::before": { left: 4 },
+        "&::after": { right: 4 },
       }}
     >
-      <Box component="span" sx={{ transform: "translateY(1px)" }}>
+      <Box
+        component="span"
+        sx={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 4,
+          bottom: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transform: "translateY(-0.5px)",
+        }}
+      >
         {day}
       </Box>
     </Box>
